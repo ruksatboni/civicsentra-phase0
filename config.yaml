@@ -1,0 +1,374 @@
+# CivicSentra Phase 0 — governed parameters
+# Every tunable value used by the scoring/evaluation code lives here, not
+# hard-coded in modules (CLAUDE.md convention; SPEC.md §4.3/§4.4).
+# Each parameter must carry a comment stating its domain justification.
+
+review_cost_per_alert_usd:
+  low: 6.40
+  mid: 7.50
+  high: 9.20
+  # Derivation (the author, 2026-07-24): US fraud analyst fully-loaded cost per
+  # alert. Base salary $62k (public sector) to $89k (private sector) per
+  # year, x1.3 fully-loaded multiplier (benefits, overhead), / 1,800
+  # productive hours/year, / ~7 alerts triaged per hour blended across a
+  # workload that is ~85% quick triage and ~15% escalation to longer
+  # investigation. The 7/hour blend is a professional estimate from the author's
+  # dispute-handling experience in banking, not a cited published figure.
+  # evaluate.py must run the full C4 cost-ratio calculation across this
+  # entire range, not just at `mid` — if the savings-vs-cost conclusion
+  # flips anywhere in [low, high], that is a headline finding, not a
+  # footnote (SPEC.md §4.4).
+
+random_seed: 42
+# Single seed for the whole generator run (CLAUDE.md: "set random seeds
+# everywhere"). Every distribution below draws from a numpy Generator
+# seeded with this value, so re-running produces identical output.
+
+scoring:
+  weights:
+    geo_velocity: 0.15
+    home_location_plausibility: 0.25
+    spend_baseline: 0.25
+    terminal_reputation: 0.15
+    terminal_temporal_neighbour: 0.10
+    ebt_policy_rules: 0.10
+    # Sum to 1.0 (SPEC.md §4.3). The author, 2026-07-25: chosen so that home-
+    # location and spend-baseline together, both at max sub-score, land
+    # exactly on the step_up_to_block line (0.25+0.25=0.50) -- the "distance
+    # + large draw" stacking case from the author's own example -- while no single
+    # non-geo feature can reach it alone (max 0.25 < 0.50).
+  thresholds:
+    allow_to_step_up: 20
+    step_up_to_block: 50
+    # The author, 2026-07-25. Chosen jointly with the weights above: any single
+    # non-geo feature maxed out (<=25) clears allow_to_step_up but stays
+    # below step_up_to_block; home_location+spend_baseline both maxed
+    # (50) exactly reaches block; a lone geo_velocity contribution (max
+    # 0.15*100=15) never reaches block through the weighted score at all --
+    # geo-velocity blocks only through the hard override below, never
+    # through score accumulation. This is deliberate: SPEC.md's pure
+    # linear-weighted-sum design (weights summing to 1.0) cannot
+    # simultaneously let one feature block alone AND require two others to
+    # stack to block -- the weight budget doesn't allow it. The hard
+    # override is what actually implements "only impossible travel blocks
+    # alone," not the weights.
+
+features:
+  geo_velocity:
+    min_elapsed_minutes_to_score: 5
+    # The author, 2026-07-25: NOT a domain figure -- a data-integrity floor.
+    # Measured on data/ebt_synthetic.csv: with no floor, 6 of 130,631
+    # genuinely legitimate consecutive-transaction pairs (0.0046%) read as
+    # physically-impossible travel purely because two independent ordinary
+    # trips landed one minute apart at different nearby terminals --
+    # minute-resolution timestamp rounding, not real behaviour. A 2-minute
+    # floor already removes all 6; 5 minutes adds safety margin at the cost
+    # of not scoring only 0.34% of legitimate pairs. Verified clean against
+    # real fraud rows in both data/ebt_synthetic.csv and
+    # data/ebt_synthetic_realistic.csv: only 1 and 3 fraud rows respectively
+    # would have tripped the impossible-speed rule at all without a floor,
+    # and zero of those four sit under 5 minutes elapsed -- real cloned-card
+    # drains show up far AND slow-enough-to-be-real-travel-time, not
+    # close-together-and-instant. Same-timestamp pairs (elapsed=0) are
+    # covered by this same floor, not treated as a special case: 35 of 36
+    # same-timestamp/different-terminal pairs in the primary dataset (705 of
+    # 725 in the realistic dataset) are legitimate, not fraud -- almost
+    # always two independent ordinary trips landing in the same rounded
+    # minute, not evidence of anything.
+    ordinary_max_mph: 100
+    # The author, 2026-07-25: NOT their operational judgment (home-location
+    # plausibility, not a speed threshold, in real casework -- see
+    # EXPLAIN_features.md). Data-derived: at the 5-minute floor, 99.99% of
+    # legitimate consecutive-transaction pairs in data/ebt_synthetic.csv
+    # imply under 94.5 mph; max is 209 mph. 100 mph covers ordinary
+    # legitimate travel (including outlier long trips) with headroom before
+    # any step-up contribution begins.
+    impossible_mph: 621.4
+    # 1,000 km/h converted to mph. Physics-derived, not domain judgment
+    # (SPEC.md §4.2): commercial aircraft cruise ~900 km/h, so speed above
+    # ~1,000 km/h is a physical impossibility regardless of context. Sub-
+    # score saturates to 1.0 at this speed, which triggers the hard-override
+    # BLOCK regardless of every other feature (config: scoring.thresholds).
+    # Between ordinary_max_mph and impossible_mph, sub-score ramps linearly.
+
+  home_location_plausibility:
+    zone_radius_miles: {urban: 3, suburban: 5, rural: 9}
+    # The author, 2026-07-25: data-derived, NOT the generator's household-to-hub
+    # placement radius (urban 0-5/suburban 5-15/rural 15-40mi from hub) --
+    # that parameter governs where households are POPULATED relative to a
+    # regional hub, not how far they actually shop from home, and reusing it
+    # would have made the rural zone (40mi) far looser than real behaviour.
+    # Measured directly from ordinary legitimate rows' home-to-terminal
+    # distance in data/ebt_synthetic.csv: 95th percentile is 2.5mi (urban),
+    # 4.8mi (suburban), 8.3mi (rural). Zone edges set slightly above that
+    # (3/5/9mi) to leave headroom for genuine outlier legitimate trips.
+    near_zone_subscore: 0.35
+    far_zone_subscore: 0.75
+    # The author, 2026-07-25: within 2x the zone edge = "small step-up"
+    # (near_zone_subscore); beyond 2x = "stronger step-up"
+    # (far_zone_subscore), per the author's banded design. Neither saturates to 1.0
+    # on its own before the hour interaction below -- distance alone must
+    # never block (weight 0.25 caps it at 25 regardless, but the banded
+    # values themselves are also kept off the ceiling to leave room for the
+    # night-hour interaction to matter).
+    night_hour_multiplier: 1.5
+    night_hours: [0, 1, 2, 3, 4]
+    # The author, 2026-07-25: the SAME distance from home scores higher between
+    # roughly 00:00-05:00 (here, hours 0-4 inclusive) than during ordinary
+    # shopping hours -- an interaction, not a second additive feature
+    # (SPEC.md §4.2). 1.5x is a domain-judgment multiplier, not measured;
+    # final sub-score is capped at 1.0 after the multiplier, and a
+    # transaction inside the normal zone still scores 0 regardless of hour
+    # (there is nothing for the hour interaction to amplify).
+
+  terminal_temporal_neighbour:
+    window_minutes: 15
+    min_neighbours_flagged: 2
+    # The author, 2026-07-25: SPEC.md §4.2 describes this feature as bidirectional
+    # ("the transaction immediately before and after, in both directions"),
+    # but "after" requires a future transaction that hasn't happened yet at
+    # the moment the scored transaction arrives -- that's leakage by
+    # SPEC.md's own definition, and would fail the leakage test at the
+    # bottom of features.py. Implemented BEFORE-ONLY instead: only prior
+    # transactions at the same terminal within the window count. This is
+    # what a real authorization system could actually compute, and it still
+    # catches a burst -- later transactions in a cluster accumulate visible
+    # history even though the first one in the cluster doesn't.
+    # Data-derived, before-only, from data/ebt_synthetic.csv: 95.33% of rows
+    # have zero prior same-terminal neighbours within 15 min, 4.48% have
+    # one, 0.19% have two or more -- "2 or more" is where ordinary traffic
+    # essentially stops. Sub-score ramps with the actual count (see
+    # features.py), so a bigger burst scores higher.
+    # MEASURED LIMITATION (not tuned away, PROGRESS.md 2026-07-25): this
+    # window/threshold flags 14.1% of P8 (PIN-guessing -- lower than a
+    # bidirectional count would show, since only the later attempts in each
+    # burst have prior neighbours to see) and 1.28% of P3, but 0% of P6
+    # (terminal-clustering cashouts) -- P6 is generated over a 48-hour
+    # window (the author's domain judgment: real cashout bursts spread over hours
+    # to days, not minutes, as a fraudster works through a stack of cloned
+    # cards), which is outside any short-window neighbour check by design.
+    # This is a real finding for outputs/evaluate_metrics.md, not a bug:
+    # burst-clustering (P8) and slow-burn clustering (P6) are different
+    # signatures; graph-based ring detection (v1.1, deferred) is the
+    # intended mechanism for the latter.
+
+  terminal_reputation:
+    shrinkage_m: 50
+    # The author, 2026-07-25: Bayesian pseudo-count for shrinkage toward the
+    # global fraud rate (SPEC.md §4.2 -- protects a terminal with e.g. 2
+    # transactions and 1 fraud from scoring as 50% risk). Data-derived: at
+    # the 18 terminals later found compromised in data/ebt_synthetic.csv,
+    # median prior (pre-compromise) transaction history was 49 rows. m=50
+    # means a terminal's own emerging fraud signal reaches equal weight with
+    # the global prior right around the point real compromise typically
+    # begins in this dataset -- before that, low-volume terminals stay
+    # anchored to the population average; after, their own history
+    # increasingly dominates.
+    saturation_rate: 0.10
+    # Sub-score is 0 at or below the dataset's overall fraud rate (~0.4%,
+    # computed point-in-time, not the full-dataset constant -- see
+    # features.py) and ramps to full contribution (1.0) at a 10% shrunk
+    # fraud rate. Data-derived ceiling: the highest shrunk rate observed
+    # anywhere in data/ebt_synthetic.csv is 13.6%, so 10% saturates before
+    # the true maximum without being reachable by an average terminal.
+
+  spend_baseline:
+    normal_max_pct: 0.40
+    strong_min_pct: 0.70
+    mid_band_base_max: 0.60
+    day_factor_min: 0.7
+    day_factor_max: 1.0
+    # The author, 2026-07-25, all four domain judgment (not data-derived): under
+    # 40% of remaining balance in one transaction = normal (sub-score 0).
+    # 40-70% = step-up, ramping from 0 to mid_band_base_max (0.6) across
+    # that range, then scaled by a day-in-cycle factor from 0.7x (day 0 of
+    # the benefit cycle, when a big draw is expected) to 1.0x (day 30, when
+    # it isn't) -- "a big draw on day 2 is more normal than the same draw on
+    # day 20." At or above 70%, sub-score saturates to 1.0 regardless of
+    # day-in-cycle ("strong step-up"). VERIFIED 2026-07-25: a transaction at
+    # 75% with nothing else present scores exactly 25 (weight 0.25 x
+    # sub-score 1.0 x 100) -- step-up, not block, which is what protects the
+    # 48 legitimate crossing-issuance-boundary N1 cases from being denied.
+    # Remaining balance itself is tracked as each household's ACTUAL prior
+    # spend this cycle (point-in-time cumulative sum, reset at each
+    # issuance), not the generator's internal estimate_remaining_balance()
+    # curve -- a real EBT authorization system knows the exact ledger
+    # balance, so using the true point-in-time balance is more accurate,
+    # not a shortcut.
+
+  ebt_policy_rules:
+    out_of_state_subscore: 0.4
+    issuance_day_fast_drain_subscore: 0.8
+    issuance_day_fast_drain_window_hours: 6
+    issuance_day_fast_drain_pct: 0.70
+    balance_probe_lead_minutes: 30
+    balance_probe_subscore: 0.45
+    # The author, 2026-07-25, all domain judgment. Three independent rule checks,
+    # combined as the max of whichever fire (not summed -- these are
+    # discrete policy triggers, not a continuous measurement like the other
+    # families). Governing principle for all three (same as the rest of the
+    # scorer): policy rules RAISE suspicion and must STACK -- only
+    # geo-velocity's impossible-travel case blocks alone (see scoring.
+    # thresholds above); at weight 0.10 against a 50-point block line, no
+    # single policy rule can reach block even saturated (max contribution
+    # 10). Ranked by how strongly each indicates fraud versus how often it
+    # fires on legitimate behaviour:
+    #
+    # (1) out_of_state_subscore = 0.4 (lowered from 0.5): terminal_state !=
+    # home_state (SPEC.md §3.2 P5). A real signal, but legitimately common --
+    # travel, family, relocation -- and it overlaps with N2 legitimate
+    # third-party use. The author does not want out-of-state alone routinely
+    # pushing people toward step-up; kept modest so it contributes and
+    # stacks, rather than dominating.
+    #
+    # (2) issuance_day_fast_drain_subscore = 0.8 (the author's highest policy
+    # signal, correctly so): days_since_issuance within
+    # issuance_day_fast_drain_window_hours of this cycle's issuance AND this
+    # transaction draws >= issuance_day_fast_drain_pct of remaining balance
+    # (P4's signature, window/pct reused from
+    # config.ebt_generator.fraud_patterns for consistency with how the
+    # pattern was actually generated). SET IN FULL KNOWLEDGE this rule also
+    # fires on the 48 legitimate store-and-forward crossing-issuance-
+    # boundary N1 cases (SPEC.md §3.3) -- that collision is real, expected,
+    # and accepted, not an oversight. Accepted because: (a) at 0.8 x 0.10
+    # weight this rule alone contributes 8 points -- step-up, not block, so
+    # a legitimate crossing case is challenged and proceeds, not denied; (b)
+    # genuine issuance-day drains stack with other signals (out-of-state,
+    # impossible travel, compromised-terminal neighbour) to reach block, so
+    # real fraud is still caught via stacking while legitimate crossing
+    # cases pay only a survivable step-up. evaluate.py must report the
+    # step-up rate specifically on those 48 cases so this trade-off's real
+    # cost is measured, not assumed (SPEC.md §4.4, not yet built).
+    #
+    # (3) balance_probe_subscore = 0.45 (lowered from 0.6): a purchase
+    # immediately (within balance_probe_lead_minutes) preceded by this same
+    # household's own balance_inquiry (P3's signature). A balance inquiry
+    # before a purchase is common, unremarkable legitimate behaviour on its
+    # own -- people check balances. Its real predictive power is in the
+    # SEQUENCE (probe-then-immediate-drain), but this rule only sees the
+    # probe in isolation, so it should nudge, not shout.
+
+ebt_generator:
+  time_window:
+    start_date: "2026-01-01"
+    n_days: 183
+    # Six months (decided 2026-07-24). Several features need multiple benefit
+    # cycles of history: percent-of-remaining-balance x days-since-issuance
+    # needs a real drawdown curve per household, and N1's
+    # store-and-forward-crosses-a-new-issuance-period case needs a next
+    # issuance period to cross into.
+
+  population:
+    n_households: 2000
+    locality_class_mix: {urban: 0.40, suburban: 0.35, rural: 0.25}
+    # Synthetic modeling choice, not a demographic claim about real SNAP
+    # caseloads — chosen so every locality_class band has enough rows for
+    # the fairness audit (SPEC.md §4.7) to be statistically meaningful.
+    n_terminals: 600
+    home_cluster_size: [3, 5]
+    # SPEC.md §3.1: "small set of nearby stores." Range, not fixed.
+    transactions_per_household_per_month: [10, 12]
+    # The author, 2026-07-24: a household buying a month of groceries shops more
+    # than twice a week. Drawn once per household (a per-household trait,
+    # not a population-wide constant), with small monthly jitter on top, so
+    # frequency genuinely varies across households rather than being fixed.
+
+  compromised_terminals:
+    fraction_ever_compromised: 0.033
+    compromise_window_days: [7, 21]
+    # ASSUMPTION (2026-07-24) — no public figure found for P1 harvest-window
+    # length; see SPEC.md §3.2. Not sourced from the author's experience either —
+    # the author had no skimming casework.
+    victims_per_compromised_terminal: [5, 15]
+    # ASSUMPTION (2026-07-24) — no public figure found (SPEC.md §3.2, P1).
+
+  fraud_patterns:
+    # Existence of each pattern P1-P8 is grounded in GAO-25-107964 (citations
+    # per pattern in SPEC.md §3.2). Every numeric value below is a labelled
+    # ASSUMPTION, not a measured or sourced figure — the public record
+    # contains no operational numbers for any of these.
+    p2_test_transaction_amount_usd: [1.0, 5.0]
+    p2_delay_before_drain_hours: [1, 6]
+    p3_balance_probe_lead_minutes: [5, 30]
+    p4_issuance_day_drain_window_hours: [0, 6]
+    p5_out_of_state_min_distance_miles: 100
+    p6_cards_per_cashout_terminal: [3, 8]
+    p6_cashout_window_hours: 48
+    p7_off_hours_range: ["23:00", "05:00"]
+    p8_pin_guess_attempts: [2, 4]
+
+  n1_technical_failure:
+    candidate_probability_per_household_month: 0.05
+    # ASSUMPTION (2026-07-24) — no measured EBT store-and-forward failure
+    # rate exists publicly. Chosen only to yield a workable N1 sample size.
+    auto_reversal_fraction: 0.50
+    # The author, 2026-07-24: "the 50% auto-reversal assumption is fine as a
+    # labelled starting point" — explicitly not a measured figure.
+    # Configurable. Only the non-reversed residue (1 - this fraction)
+    # appears as N1 rows; self-resolved candidates are dropped entirely,
+    # per the author's instruction that the detector should only ever see the residue.
+    crossing_issuance_boundary_fraction: 0.15
+    # ASSUMPTION (2026-07-24): share of N1 residue events generated as the
+    # store-and-forward-crosses-a-new-issuance-period case (7 CFR
+    # 274.12(m)), which collides mechanically with the spend-baseline
+    # feature and with P4. The rest are ordinary same-cycle failures.
+    detection_lag_days_ebt: [3, 21]
+    # The author, direct experience: EBT has no transaction alerting, so detection
+    # happens at the till, days to weeks later. This is a narrative/report
+    # parameter, not a column scorer.py needs — scoring happens at
+    # authorization time regardless of when a human later notices.
+
+  n2_secondary_user:
+    fraction_households_with_secondary_user: 0.05
+    # ASSUMPTION (2026-07-24) — authorized-representative/household-member
+    # use is a documented, formal part of SNAP, but its prevalence isn't
+    # published; chosen for a workable N2 sample size.
+    transactions_per_month: [2, 5]
+    amount_fraction_of_balance: [0.03, 0.10]
+    # Smaller draws than the primary user's typical trip (below) — modelling
+    # a secondary user's purchases as top-ups, not the main monthly shop.
+
+  primary_user_amount_fraction_of_balance: [0.10, 0.32]
+  # Per-transaction draw as a fraction of remaining balance, tapering
+  # naturally as balance shrinks across the cycle (SPEC.md §4.2, revised
+  # spend-baseline feature — "large shop soon after issuance ... tapering to
+  # near zero by month end").
+  # Retuned 2026-07-24: [0.08,0.30] produced 88.9% mean drawdown against
+  # The author's 90-100% target (SNAP households are food-insecure and spend close
+  # to the full allocation). This range targets ~91-92% in expectation
+  # given ~11 transactions/cycle. Not a measured figure — a parameter tune
+  # to hit a target the author stated directly.
+
+  late_cycle_trip_probability: 0.15
+  # ASSUMPTION (2026-07-24), fixing a real bug the author caught: primary-user
+  # transaction timing was drawn entirely from Beta(2,5), which put only
+  # 0.06% of normal-transaction mass at days_since_issuance >= 25 versus
+  # 24.4% of N1 mass there — a detector could trivially learn "late in
+  # cycle = N1" from generator artifact alone, which would have made the N1
+  # false-flag rate (the report's most distinctive finding) meaningless.
+  # This fraction of primary-user trips are now drawn uniformly across the
+  # whole cycle instead, modelling occasional late-cycle top-up shops by
+  # households with balance left — the rest stay on the front-loaded
+  # Beta(2,5) curve. 0.15 is a modelling choice, not a sourced figure.
+
+  prevalence_regimes:
+    primary:
+      output_file: "data/ebt_synthetic.csv"
+      target_fraud_prevalence: 0.004
+      n_households: 2000
+      note: >
+        Elevated-prevalence dataset (~20x the realistic-regime rate below),
+        built for statistical power. Must be stated plainly as elevated in
+        README.md's limitations section, not left implicit.
+    realistic:
+      output_file: "data/ebt_synthetic_realistic.csv"
+      target_fraud_prevalence: 0.0002
+      # The author, 2026-07-24: derived from GAO-25-107964's 679,000 affected
+      # households over 26 months against ~22.7 million SNAP households,
+      # translated to transaction-level prevalence — approximately 0.02%.
+      n_households: 38000
+      # Scaled up from the primary population so the realistic-prevalence
+      # dataset still has enough absolute fraud rows (target ~500) for
+      # evaluate.py to report stable precision/recall, per the author's
+      # instruction to test whether conclusions actually hold at realistic
+      # prevalence rather than asserting they do.

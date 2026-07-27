@@ -1,0 +1,24 @@
+# Virtual environment — machine-specific, not portable
+.venv/
+
+# macOS
+.DS_Store
+
+# Robustness-run dataset only: 38,000 households, 521MB, regenerable from
+# src/ebt_generator.py + config.yaml (random_seed: 42). Never goes to Git —
+# see explain/EXPLAIN_ebt_generator.md.
+data/ebt_synthetic_realistic.csv
+
+# ---------------------------------------------------------------------------
+# Private working files — moved to ../civicsentra-private/ on 2026-07-27 and
+# never to be tracked. These are internal planning, operating rules, working
+# logs, and the author's own manuscript. They are listed here as a guard: if
+# any of them is ever recreated in this directory, git must not pick it up.
+# ---------------------------------------------------------------------------
+SPRINT.md
+CLAUDE.md
+PROGRESS.md
+outputs/PUBLICATION_REVIEW.md
+outputs/day1_sample_rows.csv
+paper/*.docx
+*.docx
