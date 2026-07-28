@@ -48,7 +48,13 @@ reference, so nothing here depends on a document outside this repository):**
    dataset) fraud rows would ever trip the impossible-speed rule at all, and
    zero of those four sit under 5 minutes elapsed — real cloned-card drains
    are far *and* slow-enough-to-be-real-travel-time, not
-   close-together-and-instant.
+   close-together-and-instant. Both halves of this argument are recomputed by
+   `python src/geo_floor_justification.py` →
+   `outputs/GEO_FLOOR_JUSTIFICATION.md`, which checks all 11 figures in the
+   config comment over both datasets and fails if any drifts. A floor
+   justified only by the first half ("it removes artifacts") could be
+   silently destroying detections; the second half is what rules that out,
+   so they are verified together rather than separately.
 2. **Same-timestamp transactions are not a special case.** The original
    design treated exactly-simultaneous timestamps at different terminals as
    an automatic hard block (zero elapsed time makes speed undefined, not

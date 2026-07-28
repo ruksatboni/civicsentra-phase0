@@ -74,7 +74,15 @@ features:
     # same-timestamp/different-terminal pairs in the primary dataset (705 of
     # 725 in the realistic dataset) are legitimate, not fraud -- almost
     # always two independent ordinary trips landing in the same rounded
-    # minute, not evidence of anything.
+    # minute, not evidence of anything. ("Legitimate" in those two counts
+    # means both endpoints ORDINARY legitimate, N1/N2 excluded. The pairs
+    # that leaves out are not fraud either -- zero same-timestamp pairs in
+    # either dataset involve a fraud row at all.)
+    # Reproducible: `python src/geo_floor_justification.py` recomputes every
+    # figure in this comment over both datasets, parses the claimed values
+    # back out of THIS comment, and exits non-zero on any mismatch -- so a
+    # regenerated dataset cannot leave a stale justification behind a
+    # threshold. Last confirmed 2026-07-28: 11 of 11 figures match.
     ordinary_max_mph: 100
     # The author, 2026-07-25: NOT their operational judgment (home-location
     # plausibility, not a speed threshold, in real casework -- see

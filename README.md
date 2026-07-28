@@ -328,10 +328,17 @@ python src/ebt_generator.py          # -> data/ebt_synthetic.csv + data dictiona
 python src/scorer.py                 # -> data/ebt_scored.csv (features + decisions)
 python src/evaluate.py               # -> outputs/evaluate_metrics.md
 python src/benchmark_latency.py      # -> outputs/benchmark_runs/<date>.md + benchmark_latency.md
-python src/neighbour_distribution.py # -> outputs/neighbour_distribution.md
-python src/test_leakage.py           # leakage test, must pass before trusting anything
-python src/verify_independent.py     # -> outputs/INDEPENDENT_VERIFICATION.md
+python src/neighbour_distribution.py  # -> outputs/neighbour_distribution.md
+python src/geo_floor_justification.py # -> outputs/GEO_FLOOR_JUSTIFICATION.md
+python src/test_leakage.py            # -> outputs/LEAKAGE_TEST.md (must pass)
+python src/verify_independent.py      # -> outputs/INDEPENDENT_VERIFICATION.md
 ```
+
+`neighbour_distribution.py` and `geo_floor_justification.py` each recompute the
+measurements behind a config threshold, parse the claimed figures back out of
+`config.yaml`'s own comments, and **exit non-zero if any has drifted** — so a
+regenerated dataset cannot leave a stale justification sitting behind a
+parameter.
 
 `src/report.py` — a single command regenerating everything with charts — is
 specified in `SPEC.md` §4.7 but **not built**. The sequence above is the
@@ -364,8 +371,15 @@ available at the moment a transaction arrives. `test_leakage.py` truncates the
 dataset to "what existed at or before this transaction's own timestamp" and
 recomputes, rather than inspecting the code and trusting it. The first run
 found a real bug: terminal reputation was normalising against the whole
-dataframe, silently leaking the eventual average fraud rate. It was fixed
-before any result in this repository was produced.
+dataframe, silently leaking the eventual average fraud rate. It failed 11 of
+34 sampled rows; it was fixed before any result in this repository was
+produced, so no published figure was ever computed with the leaking version.
+
+Full results — all 34 sampled transactions, what each was chosen to exercise,
+pass/fail per row, and that historical note — are in
+[`outputs/LEAKAGE_TEST.md`](outputs/LEAKAGE_TEST.md). The current run is **34
+of 34 PASS**. The report is written on failure too, so a bad run leaves
+evidence rather than only a console message.
 
 ---
 

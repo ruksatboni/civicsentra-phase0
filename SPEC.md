@@ -520,6 +520,7 @@ civicsentra-phase0/
 │   ├── test_leakage.py
 │   ├── verify_independent.py
 │   ├── neighbour_distribution.py
+│   ├── geo_floor_justification.py
 │   ├── federated.py          (v1.1 — not built)
 │   └── report.py             (v1.1 — not built)
 ├── scripts/
@@ -532,6 +533,8 @@ civicsentra-phase0/
 │   ├── benchmark_latency.md  (copy of latest run, stable path for citation)
 │   ├── benchmark_runs/       (write-once dated archive, one file per run)
 │   ├── neighbour_distribution.md
+│   ├── GEO_FLOOR_JUSTIFICATION.md
+│   ├── LEAKAGE_TEST.md
 │   ├── INDEPENDENT_VERIFICATION.md
 │   └── TRACEABILITY.md
 └── paper/
@@ -557,14 +560,16 @@ Status as of 2026-07-27.
       figure in `outputs/` is written by the script that computed it.
       `outputs/TRACEABILITY.md` maps each one to its script and function.
       Against the wider standard — every number in every *published* file, not
-      just `outputs/` — it is met with ten exceptions, which that document
-      lists rather than omits: six figure groups that a script computes but
-      only prints to stdout, and four that no committed script computes at
-      all. Three are load-bearing: the leakage-test result, and the two
-      figures justifying geo-velocity's 5-minute floor. The neighbour
-      distribution a threshold was set from is no longer among them —
-      `neighbour_distribution.py` recomputes it and confirms all four
-      hand-measured values.
+      just `outputs/` — it is met with seven exceptions, which that document
+      lists rather than omits: five figure groups that a script computes but
+      only prints to stdout, and two that no committed script computes at all.
+      **None of the seven is load-bearing.** Every figure a threshold or a
+      credibility claim rests on is now recomputed by a committed script:
+      `neighbour_distribution.py` (the same-terminal distribution behind
+      `min_neighbours_flagged`), `geo_floor_justification.py` (all 11 figures
+      behind `min_elapsed_minutes_to_score`, both datasets), and
+      `test_leakage.py`, which now writes `outputs/LEAKAGE_TEST.md` on every
+      run rather than only to the console.
 - [x] **Limitations stated prominently in README and report** — met in
       README; the "report" half is subsumed by the EXPLAIN files and this
       document until `report.py` exists.

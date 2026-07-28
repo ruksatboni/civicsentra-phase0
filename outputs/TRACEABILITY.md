@@ -107,6 +107,41 @@ Two independent implementations (pure-Python bisect here, numpy searchsorted in
 own comment and compared — so a stale comment surfaces as a MISMATCH and the
 script exits non-zero.
 
+## 2c. `geo_floor_justification.py` → `outputs/GEO_FLOOR_JUSTIFICATION.md`
+
+Recomputes every figure justifying `min_elapsed_minutes_to_score: 5`, over both
+datasets. Both halves of the argument in one script, deliberately: the floor
+being *needed* and the floor being *free* are separate claims, and a floor
+justified only by the first could be suppressing real detections.
+
+| Figure | Value | Computed by |
+|---|---|---|
+| Legitimate consecutive pairs, primary | 130,631 | `analyse()` |
+| Read as impossible travel with no floor | 6 (0.0046%) | `analyse()` |
+| Largest elapsed gap among those 6 | 1.0 min | `analyse()` |
+| Legitimate pairs the floor declines to score | 447 (0.34%) | `analyse()` |
+| Fraud rows tripping impossible-speed, no floor | 1 primary (P5) / 3 realistic (P5×2, P6) | `analyse()` |
+| **Of those, under the 5-minute floor** | **0 of 4** — gaps are 15, 20, 28, 46 min | `analyse()` |
+| Same-timestamp diff-terminal pairs | 36 primary / 725 realistic | `analyse()` |
+| Of those, both endpoints ordinary legitimate | 35 / 705 | `analyse()` |
+| Of those, involving a fraud row | 0 / 0 | `analyse()` |
+| Config comment vs. recomputed | 11 of 11 MATCH | `parse_claimed()` |
+
+## 2d. `test_leakage.py` → `outputs/LEAKAGE_TEST.md`
+
+| Figure | Value | Computed by |
+|---|---|---|
+| Sampled transactions | 34, seeded `default_rng(42)` | `pick_sample()` |
+| Selection reason per row | fraud pattern / override / first-per-household / clustered / random | `pick_sample()` |
+| Feature columns compared per row | 17, across all six families | `run()` |
+| Result | 34 of 34 PASS, 0 leaks | `run()` |
+| Report | written on pass *and* fail | `write_report()` |
+
+Truncates the dataset to each sampled transaction's own timestamp and compares
+every feature against the full-dataset value, so a feature consulting a future
+row fails rather than merely looking correct. Sampled, not exhaustive — stated
+as such in the report.
+
 ## 3. `robustness_realistic.py` → `outputs/robustness_realistic_prevalence.md`
 
 Flat module-level script — no functions; figures are computed inline and
@@ -181,16 +216,15 @@ depends on it — documented as an exception, deliberately not chased.
 
 | Figure | Script | Load-bearing? |
 |---|---|---|
-| Leakage-test result: 34 sampled transactions, truncated vs. full features, pass/fail | `test_leakage.py` `run()` | **Yes.** README calls it "must pass before trusting anything" and EXPLAIN_features.md devotes a section to it, including a leakage bug it caught. A verification claim of that weight should not rest on a console message nobody kept. The strongest remaining gap. |
 | Dataset shape: 137,080 rows, 2,000 households, 547 fraud, 339 N1, 1,686 N2, pattern counts | `ebt_generator.py` `main()` | **Partly.** These are denominators for precision/recall. But `verify_independent.py` re-derives them from the CSV and its 8 population identities (547 + 136,533 = 137,080) hold, so the published figures *are* machine-checked downstream — just not by the script that produced them. The generator's drawdown-% and dsi figures are stdout-only but appear in no published file. |
 | Realistic-regime shape: 2,598,309 rows, 518 fraud | `ebt_generator.py` `main()` | **No.** The published subset is re-derived and persisted by `robustness_realistic.py` into `robustness_realistic_prevalence.md`. |
 | Five rows beyond 2× home-zone radius: 283.55, 594.55, 690.57, 720.84, 748.41 miles | `features.py` `__main__` self-test | **No.** Illustrative sample in EXPLAIN_features.md, explicitly labelled as not the five farthest. Seeded (`random_state=42`), so exactly reproducible on demand. |
 | Max home distance 760.41 miles (`TXN00062284`, P5) | `features.py` `__main__` self-test | **No.** Same self-test, same seed; a descriptive aside. |
 | Batch scoring runtime ~3.5 s for 137,080 rows | `scorer.py` | **No.** An informal aside in EXPLAIN_scorer.md, explicitly contrasted with the real per-transaction benchmark. Nothing rests on it. |
 
-**Recommended fix (not done here):** have `test_leakage.py` write an
-`outputs/` artifact the way the other scripts do. That is the one worth doing;
-the rest are fine as documented exceptions.
+**Closed:** `test_leakage.py` now writes `outputs/LEAKAGE_TEST.md` — see §2d.
+The five entries above are all non-load-bearing and are left as documented
+exceptions.
 
 ## 7. Figures no committed script computes — flagged as untraceable
 
@@ -202,8 +236,6 @@ regenerated dataset would not re-derive or re-validate them.
 
 | Figure | Appears in | Load-bearing? |
 |---|---|---|
-| 6 of 130,631 legitimate consecutive pairs read as impossible travel without the 5-minute floor | `config.yaml:60`, `EXPLAIN_features.md:42` | **Yes.** It is the entire justification for the 5-minute minimum-elapsed-time floor — the same shape as the neighbour distribution closed below, and the strongest remaining §7 gap. A script recomputing it would close it the same way. |
-| Fraud rows that would ever trip the impossible-speed rule: 1 (primary) / 3 (realistic), none under 5 min | `EXPLAIN_features.md` §1 | **Yes, narrowly.** It supports one specific claim — that the 5-minute floor "costs nothing against real fraud". If wrong, the floor might be suppressing real detections. Same fix as the row above; naturally computed by the same script. |
 | Run 1 latency: p50 635.69, p95 1057.68, p99 1102.01, mean 639.96, min/max 79.04/1114.07 ms, r=0.999, macOS 26.5.1 | `EXPLAIN_benchmark_latency.md` §"measured three times", README §Latency | **No longer.** Run 2 overwrote it and the artifact is unrecoverable, but run 3 (2026-07-28) supplies a second archived measurement, so the stability claim now rests on runs 2 and 3 — both with machine records. Run 1 stays in the table as historical prose, labelled as having no artifact. The clobbering cause is fixed (§2). |
 | Data-dictionary observed values (amount median 17.86 / mean 27.15 / max 708.36; per-column counts and ranges) | `data/ebt_data_dictionary.md` | **No.** Descriptive column documentation, checkable by hand against the CSV; no result depends on it. |
 
@@ -213,10 +245,12 @@ regenerated dataset would not re-derive or re-validate them.
 |---|---|
 | Same-terminal 15-min neighbour distribution: 95.33% / 4.48% / 0.19% | `src/neighbour_distribution.py` now recomputes it into `outputs/neighbour_distribution.md`, by two independent implementations that agree on all 137,080 rows, and parses the claimed figures back out of `config.yaml`'s comment to check them. All four match the hand-measured 2026-07-25 values exactly — the threshold's justification stands and is now reproducible. See §2b. |
 | Run 1 latency being the sole basis of a reproducibility claim | Run 3 executed 2026-07-28 with a write-once archive; the claim now rests on two surviving machine records. Reclassified above rather than deleted. |
+| Geo-velocity 5-minute floor: 6 of 130,631 pairs, and the 1/3 fraud rows that would trip impossible-speed | `src/geo_floor_justification.py` recomputes **all 11** figures in the config comment over both datasets — both halves of the argument together, since a floor justified only by "it removes artifacts" could be silently destroying detections. All 11 match; 0 of the 4 tripping fraud rows sit under the floor. See §2c. |
+| Leakage-test result | `test_leakage.py` now writes `outputs/LEAKAGE_TEST.md` on every run, pass or fail — all 34 sampled rows, what each was chosen to exercise, per-row result, and the 2026-07-25 bug it caught. Current run 34/34 PASS. See §2d. |
 
-**The strongest remaining gaps are the 5-minute-floor figures here and the
-leakage-test result in §6.** Both are load-bearing, both are one small script
-away from being closed, and neither is closed today.
+**No load-bearing figure is now untraced.** The two entries remaining above
+are a lost artifact that has been superseded and a set of descriptive column
+values; nothing depends on either.
 
 ## 8. Summary
 
@@ -228,20 +262,24 @@ away from being closed, and neither is closed today.
 - **Independently machine-verified:** 34 headline metrics + 8 population
   identities (§5), plus the neighbour distribution's two-implementation
   agreement across all 137,080 rows (§2b).
-- **Computed but not persisted:** 6 figure groups (§6) — one load-bearing
-  (the leakage-test result), one partly so, four not.
-- **Not computed by any committed script:** 4 figure groups (§7) — two
-  load-bearing (both concerning the 5-minute geo-velocity floor), two not.
+- **Computed but not persisted:** 5 figure groups (§6) — one partly
+  load-bearing but machine-checked downstream, four not load-bearing.
+- **Not computed by any committed script:** 2 figure groups (§7) — neither
+  load-bearing.
+
+**No load-bearing published figure is untraced.** That was not true when this
+document was first written; it is now.
 
 **Correction to the first version of this document:** it said "twelve
 exceptions … six and six". The count was wrong — §7 listed five groups, not
-six, so the total was eleven. Closing the neighbour distribution and
-reclassifying run-1 latency leaves **ten**: six in §6, four in §7. The
-individual entries were and are correct; only the tally was off.
+six, so the total was eleven. Individual entries were correct; only the tally
+was off. The count has since gone eleven → ten (neighbour distribution closed,
+run-1 latency reclassified) → **seven** (5-minute floor, the fraud rows that
+would trip impossible-speed, and the leakage-test result all closed).
 
 SPEC.md's checklist item "Every number in the report traces to executed code"
 is marked met on the basis that every figure in `outputs/` is written by the
 script that computed it. That remains accurate as written. §6 and §7 above are
 the wider claim — every number in every *published* file — and by that
-standard the checklist item is met with the ten exceptions listed, three of
+standard the checklist item is met with the seven exceptions listed, none of
 them load-bearing.
