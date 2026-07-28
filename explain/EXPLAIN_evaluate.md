@@ -13,8 +13,8 @@ job (SPEC.md §4.7, not yet built); this module's job is to compute and
 record the real numbers.
 
 Every number in `outputs/evaluate_metrics.md` came from running
-`python src/evaluate.py` against `data/ebt_scored.csv`, not assumed
-(CLAUDE.md Rule 1).
+`python src/evaluate.py` against `data/ebt_scored.csv` — computed by that
+run, not assumed or carried over from a previous one.
 
 ## Ten sections, what each answers
 
@@ -111,7 +111,7 @@ Every number in `outputs/evaluate_metrics.md` came from running
    that: 547 fraud rows out of 137,080). Computed as the standard step-wise
    average-precision definition, hand-implemented rather than pulled from
    scikit-learn — scikit-learn is not an installed dependency
-   (`CLAUDE.md`: keep dependencies minimal) and this is a ~10-line
+   (this project keeps its dependency list minimal) and this is a ~10-line
    computation, not worth a new install for.
 3. **Alerts per 1,000 transactions at fixed recall levels.** This is how
    review capacity is actually planned in a real fraud operation: "if we
@@ -273,8 +273,8 @@ high end. **This does not flip sign anywhere in the range (ratio stays
 above 1:1 throughout)**, so C4's qualitative claim ("savings exceed cost")
 holds, but the multiple the paper currently states is not supported by this
 measurement. Per SPEC.md's own instruction (§1: "we are not trying to reach
-99, we are trying to find out what the real figure is") and CLAUDE.md Rule
-1, this is reported as the headline number it is, not softened.
+99, we are trying to find out what the real figure is"), this is reported as
+the headline number it is, not softened.
 
 ## What this module does *not* do
 

@@ -6,7 +6,8 @@ test at the bottom of this file. See explain/EXPLAIN_features.md for design
 rationale, breakpoint sourcing, and known limitations for each feature
 family.
 
-Built one family at a time (CLAUDE.md Rule 7): geo-velocity first.
+Built one family at a time, each verified before the next was started:
+geo-velocity first.
 """
 from pathlib import Path
 

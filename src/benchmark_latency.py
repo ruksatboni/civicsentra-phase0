@@ -172,7 +172,7 @@ def main():
                   "scored on day one. This is a real, measured property of this specific "
                   "implementation, not a claim about EBT authorization latency in general -- "
                   "an incrementally-stateful implementation would not show this growth. "
-                  "Reported here, not hidden, per CLAUDE.md Rule 1.\n")
+                  "Reported here as measured, not hidden or softened.\n")
 
     lines.append("## Caveat (SPEC.md §4.5)")
     lines.append("Python is not a production authorization-path language. These figures "

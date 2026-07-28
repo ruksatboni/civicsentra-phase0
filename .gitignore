@@ -4,7 +4,7 @@
 # macOS
 .DS_Store
 
-# Robustness-run dataset only: 38,000 households, 521MB, regenerable from
+# Robustness-run dataset only: 38,000 households, 538MB, regenerable from
 # src/ebt_generator.py + config.yaml (random_seed: 42). Never goes to Git —
 # see explain/EXPLAIN_ebt_generator.md.
 data/ebt_synthetic_realistic.csv

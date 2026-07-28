@@ -122,7 +122,7 @@ All in `config.yaml` under `ebt_generator`:
   generator rather than a real measurement
 - `random_seed` (42) — changing it produces a different but equally valid
   dataset; re-running with the same seed reproduces this exact file byte-for-
-  byte (CLAUDE.md's "set random seeds everywhere" rule)
+  byte, because every stochastic step in the generator is seeded from it
 
 **Publishing `remaining_balance_at_transaction` (added 2026-07-27).**
 `features.py` computes the point-in-time balance internally to derive the

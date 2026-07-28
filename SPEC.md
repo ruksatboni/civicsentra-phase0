@@ -15,7 +15,7 @@ one was not.
 
 | # | Claim | Paper § | How we test it | Status |
 |---|-------|---------|----------------|--------|
-| C1 | Scoring completes in under 30 ms | §4.2 | Per-transaction latency benchmark, p50/p95/p99, streaming not batched | **Tested — not supported.** p50 636.79 ms, p95 1044.21 ms, p99 1097.04 ms; 0% of sampled transactions under 30 ms. Three runs over four days agree to 0.69% at the median |
+| C1 | Scoring completes in under 30 ms | §4.2 | Per-transaction latency benchmark, p50/p95/p99, streaming not batched | **Tested — not supported.** p50 637.16 ms, p95 1037.45 ms, p99 1083.36 ms; 0% of sampled transactions under 30 ms. Four runs over four days agree to 0.69% at the median |
 | C2 | Fraud reduced 60–80% | §4.4 | Detection rate at operationally realistic false-positive rates | **Tested — partially supported.** 72.94% recall at the configured operating point, inside the claimed band, but at 17.12% precision; see §4.4 on the review-volume cost |
 | C3 | Federated learning beats siloed models without sharing raw data | §4.2, §7 | Three-partition federated averaging vs. local-only baselines | **NOT TESTED.** `federated.py` was cut from this sprint and is not built. No evidence is offered for C3 either way |
 | C4 | Savings vastly exceed cost ("spend 1, save 99") | §4.4, §6 | Dollar-weighted cost model producing the *actual* ratio | **Tested — partially supported.** See below |
@@ -24,7 +24,7 @@ one was not.
 bound at the median. The dominant cause is architectural, not language choice:
 `features.py` recomputes every feature from full history on each call rather
 than maintaining incremental state, and latency correlates with history size at
-r=0.997–0.999 across three runs. A compiled reimplementation would not by
+r=0.997–0.999 across four runs. A compiled reimplementation would not by
 itself close this gap.
 
 **C4 needs stating plainly:** Measured: 3.15:1 to 4.52:1 across the

@@ -59,12 +59,12 @@ All subgroup rates under n=200 carry a count and a Wilson 95% CI, produced by
 
 ## 2. `benchmark_latency.py` → `outputs/benchmark_runs/<date>.md` + `outputs/benchmark_latency.md`
 
-Values below are run 3 (2026-07-28), the current run.
+Values below are run 4 (2026-07-28), the current run.
 
 | Figure | Value | Computed by |
 |---|---|---|
-| p50 / p95 / p99 | 636.79 / 1044.21 / 1097.04 ms | `run_benchmark()` → `percentile()` |
-| mean / min / max | 636.81 / 81.06 / 1111.10 ms | `run_benchmark()` |
+| p50 / p95 / p99 | 637.16 / 1037.45 / 1083.36 ms | `run_benchmark()` → `percentile()` |
+| mean / min / max | 639.55 / 76.43 / 1100.05 ms | `run_benchmark()` |
 | % under 30 ms (claim C1) | 0.0% of 300 samples | `main()` |
 | Correlation, history size vs. latency | r = 0.997 | `main()` |
 | 20-point percentile distribution | p5–p95 | `percentile()` |
@@ -85,10 +85,19 @@ stable path for citation. Surviving machine records:
 | 1 | 2026-07-25 | 635.69 ms | **none — overwritten by run 2** |
 | 2 | 2026-07-27 | 640.08 ms | `benchmark_runs/benchmark_latency_2026-07-27.md` |
 | 3 | 2026-07-28 | 636.79 ms | `benchmark_runs/benchmark_latency_2026-07-28.md` |
+| 4 | 2026-07-28 | 637.16 ms | `benchmark_runs/benchmark_latency_2026-07-28T02-26-36Z.md` |
 
-The three-run stability claim in `explain/EXPLAIN_benchmark_latency.md` rests on
-runs 2 and 3, both archived. Run 1 is cited as historical prose and labelled as
-such.
+The four-run stability claim in `explain/EXPLAIN_benchmark_latency.md` rests on
+runs 2, 3 and 4, all archived. Run 1 is cited as historical prose and labelled
+as such. Run 4 took a second-resolution filename because run 3 already held the
+dated one — the write-once fallback working as intended.
+
+**Two archived runs still contain the phrase "per CLAUDE.md Rule 1"** in their
+generated caveat text. `CLAUDE.md` is a private file and every other reference
+to it was replaced on 2026-07-28; these two were not, because they are
+write-once records of what the script actually printed on those dates. Editing
+them would make them no longer that. The wording is fixed at source, so every
+run from 4 onward is clean.
 
 ## 2b. `neighbour_distribution.py` → `outputs/neighbour_distribution.md`
 
@@ -236,7 +245,7 @@ regenerated dataset would not re-derive or re-validate them.
 
 | Figure | Appears in | Load-bearing? |
 |---|---|---|
-| Run 1 latency: p50 635.69, p95 1057.68, p99 1102.01, mean 639.96, min/max 79.04/1114.07 ms, r=0.999, macOS 26.5.1 | `EXPLAIN_benchmark_latency.md` §"measured three times", README §Latency | **No longer.** Run 2 overwrote it and the artifact is unrecoverable, but run 3 (2026-07-28) supplies a second archived measurement, so the stability claim now rests on runs 2 and 3 — both with machine records. Run 1 stays in the table as historical prose, labelled as having no artifact. The clobbering cause is fixed (§2). |
+| Run 1 latency: p50 635.69, p95 1057.68, p99 1102.01, mean 639.96, min/max 79.04/1114.07 ms, r=0.999, macOS 26.5.1 | `EXPLAIN_benchmark_latency.md` §"measured four times", README §Latency | **No longer.** Run 2 overwrote it and the artifact is unrecoverable, but runs 3 and 4 (both 2026-07-28) supply two further archived measurements, so the stability claim now rests on runs 2, 3 and 4 — all with machine records. Run 1 stays in the table as historical prose, labelled as having no artifact. The clobbering cause is fixed (§2). |
 | Data-dictionary observed values (amount median 17.86 / mean 27.15 / max 708.36; per-column counts and ranges) | `data/ebt_data_dictionary.md` | **No.** Descriptive column documentation, checkable by hand against the CSV; no result depends on it. |
 
 **Closed since the first version of this document:**

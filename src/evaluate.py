@@ -4,10 +4,10 @@ Reads data/ebt_scored.csv (scorer.py's decisions) and compares them against
 ground truth (is_fraud, fraud_pattern) to produce every metric SPEC.md §4.4
 requires, plus the author's 2026-07-25 additions (the 48-crossing-case step-up
 rate). Every number below comes from this file being executed against
-data/ebt_scored.csv -- nothing is assumed or invented (CLAUDE.md Rule 1).
+data/ebt_scored.csv -- nothing is assumed or invented.
 
 Writes outputs/evaluate_metrics.md, a plain-text record of the real numbers
-this run produced (CLAUDE.md "Definition of done": real numbers, obtained by
+this run produced (the standard this project holds itself to: real numbers, obtained by
 execution, recorded in outputs/). This is NOT outputs/PHASE0_REPORT.md --
 that polished, charted, fully-reproducible report is report.py's job
 (SPEC.md §4.7, not yet built).
@@ -29,7 +29,7 @@ SMALL_N_THRESHOLD = 200
 Z_95 = 1.959963984540054
 # Exact two-sided 95% normal critical value, used by the Wilson score
 # interval below. Hardcoded rather than pulled from scipy.stats.norm.ppf(
-# 0.975) -- scipy is not an installed dependency (CLAUDE.md: keep
+# 0.975) -- scipy is not an installed dependency (this project keeps
 # dependencies minimal) and this constant does not change.
 
 FRAUD_PATTERNS = ["P2", "P3", "P4", "P5", "P6", "P7", "P8"]
@@ -87,7 +87,7 @@ def average_precision(is_fraud, risk_score):
     (AP = sum_i (recall_i - recall_{i-1}) * precision_i over score-sorted
     points), not ROC-AUC (SPEC.md §4.4: ROC-AUC flatters classifiers on
     imbalanced data). Implemented directly rather than via scikit-learn --
-    not an installed dependency (CLAUDE.md: keep dependencies minimal) and
+    not an installed dependency (this project keeps its dependency list minimal) and
     this is a ~10-line computation.
     """
     order = np.argsort(-risk_score.values)
@@ -467,7 +467,7 @@ def build_report(out, cfg):
     lines.append("# CivicSentra Phase 0 -- evaluate.py output")
     lines.append(f"Generated {ts} from data/ebt_scored.csv ({len(out):,} rows).")
     lines.append("Every number below is computed by this script's own execution, "
-                  "not assumed (CLAUDE.md Rule 1).\n")
+                  "not assumed or carried over from a previous run.\n")
 
     # -- 1/2: precision, recall, PR-AUC ------------------------------------
     is_fraud = out["is_fraud"]

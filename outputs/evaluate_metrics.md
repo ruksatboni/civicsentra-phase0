@@ -1,6 +1,6 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-27 15:00:16 UTC from data/ebt_scored.csv (137,080 rows).
-Every number below is computed by this script's own execution, not assumed (CLAUDE.md Rule 1).
+Generated 2026-07-28 02:23:16 UTC from data/ebt_scored.csv (137,080 rows).
+Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
 Alerted = decision != allow. TP=399  FP=1931  FN=148

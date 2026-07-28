@@ -13,7 +13,7 @@ rate, a later neighbour, etc.), truncating the dataset to "the world as it
 looked at that moment" would change that transaction's own values -- this
 test would then fail, not just look plausible.
 
-No new dependency: plain assertions, not pytest (CLAUDE.md: keep
+No new dependency: plain assertions, not pytest (this project keeps
 dependencies minimal).
 """
 import sys

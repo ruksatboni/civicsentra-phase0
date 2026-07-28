@@ -1,6 +1,7 @@
 # CivicSentra Phase 0 — governed parameters
 # Every tunable value used by the scoring/evaluation code lives here, not
-# hard-coded in modules (CLAUDE.md convention; SPEC.md §4.3/§4.4).
+# hard-coded in modules, so every tunable is auditable in one place
+# (SPEC.md §4.3/§4.4).
 # Each parameter must carry a comment stating its domain justification.
 
 review_cost_per_alert_usd:
@@ -20,8 +21,9 @@ review_cost_per_alert_usd:
   # footnote (SPEC.md §4.4).
 
 random_seed: 42
-# Single seed for the whole generator run (CLAUDE.md: "set random seeds
-# everywhere"). Every distribution below draws from a numpy Generator
+# Single seed for the whole generator run -- every stochastic step in this
+# project is seeded, so no result depends on an unrecorded random draw.
+# Every distribution below draws from a numpy Generator
 # seeded with this value, so re-running produces identical output.
 
 scoring:

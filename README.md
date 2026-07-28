@@ -32,7 +32,7 @@ repository exists partly to say so.
 
 | Claim | Paper says | Measured here |
 |---|---|---|
-| C1 · Latency | Scoring completes under 30 ms | **Not supported.** p50 636.79 ms (635.69–640.08 across three runs); 0% of sampled transactions under 30 ms in any run |
+| C1 · Latency | Scoring completes under 30 ms | **Not supported.** p50 637.16 ms (635.69–640.08 across four runs); 0% of sampled transactions under 30 ms in any run |
 | C2 · Detection | Fraud reduced 60–80% | **Not supported as stated.** Recall measured at 72.94% (17.12% precision), but recall is not fraud reduction: shadow mode blocks nothing, so no reduction was or could be measured. The claim requires a live pilot |
 | C3 · Federated learning | Beats siloed models | **Not tested.** `federated.py` was not built. No evidence either way |
 | C4 · Cost ratio | Savings vastly exceed cost | **Partially supported, as a projection.** 3.15:1 to 4.52:1, above break-even but below the paper's §4.4 figure — both sides of the ratio are counterfactual |
@@ -131,17 +131,17 @@ number.**
 
 **Latency (C1)**
 
-- p50 636.79 ms, p95 1044.21 ms, p99 1097.04 ms, single transaction at a time
+- p50 637.16 ms, p95 1037.45 ms, p99 1083.36 ms, single transaction at a time
   (not vectorized batch). Apple M3, macOS 26.5.2, Python 3.9.6
-- **Measured three times over four days:** p50 635.69 ms (2026-07-25, macOS
-  26.5.1), 640.08 ms (2026-07-27, macOS 26.5.2), 636.79 ms (2026-07-28) —
-  **0.69% between the extremes, across an OS point update and a regenerated
-  dataset.** The benchmark is stable; the figure is a measurement, not a
-  one-off reading. Runs 2 and 3 have machine records under
+- **Measured four times over four days:** p50 635.69 ms (2026-07-25, macOS
+  26.5.1), 640.08 ms (2026-07-27, macOS 26.5.2), 636.79 and 637.16 ms
+  (2026-07-28) — **0.69% between the extremes, across an OS point update and a
+  regenerated dataset.** The benchmark is stable; the figure is a measurement,
+  not a one-off reading. Runs 2, 3 and 4 have machine records under
   [`outputs/benchmark_runs/`](outputs/benchmark_runs/); run 1's was overwritten
   before the benchmark archived its output, so it is cited as historical prose
-  and the stability claim rests on the two that survive
-- **0% of sampled transactions scored under 30 ms**, in all three runs. The
+  and the stability claim rests on the three that survive
+- **0% of sampled transactions scored under 30 ms**, in all four runs. The
   cause is architectural, not language choice: features are recomputed from
   full history on every call rather than maintained incrementally, and latency
   correlates with history size at r=0.997–0.999. A compiled rewrite would not
@@ -468,7 +468,7 @@ the Sparkov public dataset. Expected to perform worse — merchant-level
 reputation smears a signal that clusters at individual terminals — and that
 result is worth having either way.
 
-**4. Make latency a real measurement (C1).** Current p50 is 636.79 ms against
+**4. Make latency a real measurement (C1).** Current p50 is 637.16 ms against
 a claimed 30 ms, dominated by recomputing every feature from full history on
 each call (r=0.997 with history size). An incrementally stateful implementation
 maintaining running per-terminal and per-household counters would test whether

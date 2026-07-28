@@ -11,8 +11,8 @@ that has nothing to do with real authorization-time latency, and using it
 would be a form of cheating. Writes `outputs/benchmark_latency.md`.
 
 Every number below came from running `python src/benchmark_latency.py`
-against `data/ebt_synthetic.csv` on the author's own machine, not assumed
-(CLAUDE.md Rule 1).
+against `data/ebt_synthetic.csv` on the author's own machine — measured,
+not assumed or estimated.
 
 ## Method: reused truncation, not a new parallel implementation
 
@@ -40,7 +40,7 @@ real production system would work. Rejected for three reasons:
    already-leakage-tested `compute_all_features()` directly.
 2. Building and verifying a stateful incremental implementation is
    meaningfully more engineering than a 3-day sprint has room for
-   (CLAUDE.md Rule 5: stay in scope, don't build ahead).
+   (out of scope for this sprint: build what is specified, not ahead of it).
 3. Reusing the existing pipeline produces an honest, if unflattering,
    measurement of *this specific reference implementation* — which is
    exactly what SPEC.md §4.5 asks the benchmark to report, caveats
@@ -53,28 +53,35 @@ because with almost no history their feature computation is trivially fast
 and not representative of the steady-state cost this benchmark exists to
 characterize.
 
-## Real result — measured three times over four days
+## Real result — measured four times over four days
 
 Apple M3, Python 3.9.6, 8 cores. Run 2 followed a macOS point update and a
-regeneration of the dataset. Run 3 is on the same OS as run 2.
+regeneration of the dataset. Runs 3 and 4 are on the same OS as run 2.
 
-| | Run 1 — 2026-07-25 | Run 2 — 2026-07-27 | Run 3 — 2026-07-28 |
-|---|---|---|---|
-| OS | macOS 26.5.1 arm64 | macOS 26.5.2 arm64 | macOS 26.5.2 arm64 |
-| p50 | 635.69 ms | 640.08 ms | 636.79 ms |
-| p95 | 1057.68 ms | 1039.34 ms | 1044.21 ms |
-| p99 | 1102.01 ms | 1088.05 ms | 1097.04 ms |
-| mean | 639.96 ms | 640.25 ms | 636.81 ms |
-| min / max | 79.04 / 1114.07 ms | 75.06 / 1097.17 ms | 81.06 / 1111.10 ms |
-| correlation with history size | r=0.999 | r=0.998 | r=0.997 |
-| under 30 ms | 0.0% | 0.0% | 0.0% |
-| machine record | **none — overwritten** | `outputs/benchmark_runs/benchmark_latency_2026-07-27.md` | `outputs/benchmark_runs/benchmark_latency_2026-07-28.md` |
+| | Run 1 — 2026-07-25 | Run 2 — 2026-07-27 | Run 3 — 2026-07-28 | Run 4 — 2026-07-28 |
+|---|---|---|---|---|
+| OS | macOS 26.5.1 arm64 | macOS 26.5.2 arm64 | macOS 26.5.2 arm64 | macOS 26.5.2 arm64 |
+| p50 | 635.69 ms | 640.08 ms | 636.79 ms | 637.16 ms |
+| p95 | 1057.68 ms | 1039.34 ms | 1044.21 ms | 1037.45 ms |
+| p99 | 1102.01 ms | 1088.05 ms | 1097.04 ms | 1083.36 ms |
+| mean | 639.96 ms | 640.25 ms | 636.81 ms | 639.55 ms |
+| min / max | 79.04 / 1114.07 ms | 75.06 / 1097.17 ms | 81.06 / 1111.10 ms | 76.43 / 1100.05 ms |
+| correlation with history size | r=0.999 | r=0.998 | r=0.997 | r=0.997 |
+| under 30 ms | 0.0% | 0.0% | 0.0% | 0.0% |
+| machine record | **none — overwritten** | `benchmark_runs/benchmark_latency_2026-07-27.md` | `benchmark_runs/benchmark_latency_2026-07-28.md` | `benchmark_runs/benchmark_latency_2026-07-28T02-26-36Z.md` |
+
+Run 4 was not run to get a better number — it was run to regenerate this
+module's output after a wording change, and its figures are reported because
+they exist, not because they were wanted. It also exercised the write-once
+archive: the dated filename was already taken by run 3, so the archive fell
+back to a second-resolution name rather than overwriting it, which is the
+behaviour that was supposed to exist when run 2 destroyed run 1.
 
 **On run 1's missing artifact, stated plainly.** Run 2 overwrote
 `outputs/benchmark_latency.md`, so run 1's figures survive only as the prose
 in this table — hand-transcribed, with no file behind them. That is exactly
 the failure this project exists to avoid, and it is why the stability claim
-below rests on **runs 2 and 3, which do have machine records**, with run 1
+below rests on **runs 2, 3 and 4, which all have machine records**, with run 1
 cited as historical prose rather than as evidence. `benchmark_latency.py` now
 writes a write-once dated archive under `outputs/benchmark_runs/` before it
 touches the stable filename, and refuses to overwrite an existing archive, so
@@ -87,34 +94,38 @@ latency figure the weakest number in a report: a single measurement is
 indistinguishable from a lucky run, and a reader has no way to tell which they
 are being shown.
 
-Three runs over four days, across an OS point update and a regenerated
+Four runs over four days, across an OS point update and a regenerated
 dataset, answer that:
 
-- **p50 spans 635.69–640.08 ms — 0.69% between the extremes.** Runs 2 and 3,
-  the two with machine records, are 0.52% apart.
+- **p50 spans 635.69–640.08 ms — 0.69% between the extremes.** The three runs
+  with machine records span 0.52%.
 - **mean spans 636.81–640.25 ms — 0.54%.**
-- p95 spans 1.76% and p99 1.28%, both wider than the median and **not moving
+- p95 spans 1.95% and p99 1.72%, both wider than the median and **not moving
   in the same direction as it** run to run. That is what ordinary scheduling
   noise looks like: the tail is noisier than the middle, and nothing trends.
 - The history-size correlation reproduces at r=0.997–0.999 every time.
 
-So the honest reading of C1 is not "p50 is 636.79 ms." It is: **this
+A fourth run did not widen the spread at the median: the extremes are still
+run 1 and run 2. That is the useful thing about repeating a measurement — the
+range stopped moving.
+
+So the honest reading of C1 is not "p50 is 637.16 ms." It is: **this
 implementation's median scoring latency is approximately 635–640 ms,
-reproducible to under one percent across three runs, against a claimed 30 ms.**
+reproducible to under one percent across four runs, against a claimed 30 ms.**
 Anyone re-running it on comparable hardware should land in the same place, and
 if they do not, that is a real finding about their environment rather than an
 artifact of ours.
 
-**0.0% of sampled transactions scored under 30ms, in all three runs.** This is
-nowhere close to claim C1, and per CLAUDE.md Rule 1 that is reported exactly
-as measured, not softened.
+**0.0% of sampled transactions scored under 30ms, in all four runs.** This is
+nowhere close to claim C1, and it is reported exactly as measured, not
+softened toward the claim.
 
 ## Why the number is this high — and it is not primarily "Python is slow"
 
 **Measured correlation between transaction-history size and a
-transaction's own latency: r = 0.997** (run 3, the current run; 0.998 in run 2
-and 0.999 in run 1 — the effect reproduces in all three). This is the dominant
-effect, and it
+transaction's own latency: r = 0.997** (run 4, the current run; 0.997 in run 3,
+0.998 in run 2, 0.999 in run 1 — the effect reproduces in all four). This is the
+dominant effect, and it
 is a specific, fixable property of *this reference implementation*, not a
 general statement about EBT authorization latency:
 
@@ -127,8 +138,8 @@ calculation — rather than maintaining running per-terminal and
 per-household counters that a real production system would keep updated
 incrementally as transactions arrive. So a transaction scored once 130,000
 rows of history already exist costs measurably more (in this benchmark,
-roughly 1 second — run 3 max 1111.10 ms) than one scored on day one of the
-dataset (run 3 min 81.06 ms) — the r=0.997 correlation confirms latency is a
+roughly 1 second — run 4 max 1100.05 ms) than one scored on day one of the
+dataset (run 4 min 76.43 ms) — the r=0.997 correlation confirms latency is a
 direct function of history size, i.e. this implementation's cost is closer
 to O(n) per transaction than O(1).
 
@@ -162,7 +173,8 @@ actually a much larger, architectural one.
 
 - Does not build an incrementally stateful implementation to get a more
   representative number — that would be new engineering scoped for v1.1 at
-  the earliest, not this 3-day sprint (CLAUDE.md Rule 5).
+  the earliest, not this 3-day sprint — build what is specified, not ahead
+  of it.
 - Does not vary hardware or attempt to project performance on
   production-grade infrastructure — this is the author's own development
   machine, reported as such, not a server-class benchmark environment.
