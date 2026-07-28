@@ -1,0 +1,36 @@
+#!/bin/sh
+# Author-email lock for civicsentra-phase0.
+#
+# Why this exists: `user.useConfigOnly = true` with no local user.email does
+# NOT block a commit. It only stops git deriving an email from the hostname;
+# a global user.email is still used silently. That is how a real address got
+# stamped into this history once already. This hook is the actual lock.
+#
+# Allowed author emails are listed below. Anything else aborts the commit.
+# To publish: change ALLOWED to the GitHub noreply address, re-stamp existing
+# history, then commit.
+
+ALLOWED="placeholder@example.invalid"
+
+ident=$(git var GIT_AUTHOR_IDENT) || exit 1
+email=$(printf '%s' "$ident" | sed -n 's/.*<\(.*\)>.*/\1/p')
+
+if [ -z "$email" ]; then
+    echo "pre-commit: BLOCKED - author email is empty." >&2
+    echo "An empty-email commit is not a safe fallback. Set one explicitly." >&2
+    exit 1
+fi
+
+for ok in $ALLOWED; do
+    if [ "$email" = "$ok" ]; then
+        exit 0
+    fi
+done
+
+echo "pre-commit: BLOCKED - author email '$email' is not allowed here." >&2
+echo "This repository commits under a placeholder identity until it is ready" >&2
+echo "to publish. Allowed: $ALLOWED" >&2
+echo "" >&2
+echo "To commit anyway (deliberately), pass the identity explicitly:" >&2
+echo "  git -c user.email=<addr> commit --no-verify ..." >&2
+exit 1

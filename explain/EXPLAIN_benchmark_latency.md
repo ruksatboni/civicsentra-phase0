@@ -53,53 +53,68 @@ because with almost no history their feature computation is trivially fast
 and not representative of the steady-state cost this benchmark exists to
 characterize.
 
-## Real result — measured twice, six days apart
+## Real result — measured three times over four days
 
-Apple M3, Python 3.9.6, 8 cores. The second run followed a macOS point
-update and a regeneration of the dataset.
+Apple M3, Python 3.9.6, 8 cores. Run 2 followed a macOS point update and a
+regeneration of the dataset. Run 3 is on the same OS as run 2.
 
-| | Run 1 — 2026-07-25 | Run 2 — 2026-07-27 |
-|---|---|---|
-| OS | macOS 26.5.1 arm64 | macOS 26.5.2 arm64 |
-| p50 | 635.69 ms | 640.08 ms |
-| p95 | 1057.68 ms | 1039.34 ms |
-| p99 | 1102.01 ms | 1088.05 ms |
-| mean | 639.96 ms | 640.25 ms |
-| min / max | 79.04 / 1114.07 ms | 75.06 / 1097.17 ms |
-| correlation with history size | r=0.999 | r=0.998 |
-| under 30 ms | 0.0% | 0.0% |
+| | Run 1 — 2026-07-25 | Run 2 — 2026-07-27 | Run 3 — 2026-07-28 |
+|---|---|---|---|
+| OS | macOS 26.5.1 arm64 | macOS 26.5.2 arm64 | macOS 26.5.2 arm64 |
+| p50 | 635.69 ms | 640.08 ms | 636.79 ms |
+| p95 | 1057.68 ms | 1039.34 ms | 1044.21 ms |
+| p99 | 1102.01 ms | 1088.05 ms | 1097.04 ms |
+| mean | 639.96 ms | 640.25 ms | 636.81 ms |
+| min / max | 79.04 / 1114.07 ms | 75.06 / 1097.17 ms | 81.06 / 1111.10 ms |
+| correlation with history size | r=0.999 | r=0.998 | r=0.997 |
+| under 30 ms | 0.0% | 0.0% | 0.0% |
+| machine record | **none — overwritten** | `outputs/benchmark_runs/benchmark_latency_2026-07-27.md` | `outputs/benchmark_runs/benchmark_latency_2026-07-28.md` |
 
-`outputs/benchmark_latency.md` holds run 2, the current one. Run 1 is
-recorded here because the comparison is itself a result.
+**On run 1's missing artifact, stated plainly.** Run 2 overwrote
+`outputs/benchmark_latency.md`, so run 1's figures survive only as the prose
+in this table — hand-transcribed, with no file behind them. That is exactly
+the failure this project exists to avoid, and it is why the stability claim
+below rests on **runs 2 and 3, which do have machine records**, with run 1
+cited as historical prose rather than as evidence. `benchmark_latency.py` now
+writes a write-once dated archive under `outputs/benchmark_runs/` before it
+touches the stable filename, and refuses to overwrite an existing archive, so
+no future run can destroy its predecessor.
 
-**The 0.7% gap between the two p50s is the finding, not a discrepancy.**
-A wall-clock benchmark cannot be seeded into exact reproducibility the way
-the rest of this project is — it measures the machine, not just the code.
-That normally makes a latency figure the weakest number in a report: a
-single measurement is indistinguishable from a lucky run, and a reader has
-no way to tell which they are being shown.
+**The spread across runs is the finding, not a discrepancy.** A wall-clock
+benchmark cannot be seeded into exact reproducibility the way the rest of this
+project is — it measures the machine, not just the code. That normally makes a
+latency figure the weakest number in a report: a single measurement is
+indistinguishable from a lucky run, and a reader has no way to tell which they
+are being shown.
 
-Two independent runs, six days apart, across an OS point update and a
-regenerated dataset, landing 0.7% apart at the median and 0.05% apart at the
-mean, answer that. The measurement is stable and the benchmark reproduces.
-The p95 moved 1.7% in the *opposite* direction to the p50, which is what
-ordinary scheduling noise looks like — not a trend, and not drift.
+Three runs over four days, across an OS point update and a regenerated
+dataset, answer that:
 
-So the honest reading of C1 is not "p50 is 640.08 ms." It is: **this
-implementation's median scoring latency is approximately 640 ms, reproducible
-to well under one percent, against a claimed 30 ms.** Anyone re-running it on
-comparable hardware should land in the same place, and if they do not, that
-is a real finding about their environment rather than an artifact of ours.
+- **p50 spans 635.69–640.08 ms — 0.69% between the extremes.** Runs 2 and 3,
+  the two with machine records, are 0.52% apart.
+- **mean spans 636.81–640.25 ms — 0.54%.**
+- p95 spans 1.76% and p99 1.28%, both wider than the median and **not moving
+  in the same direction as it** run to run. That is what ordinary scheduling
+  noise looks like: the tail is noisier than the middle, and nothing trends.
+- The history-size correlation reproduces at r=0.997–0.999 every time.
 
-**0.0% of sampled transactions scored under 30ms, in both runs.** This is
+So the honest reading of C1 is not "p50 is 636.79 ms." It is: **this
+implementation's median scoring latency is approximately 635–640 ms,
+reproducible to under one percent across three runs, against a claimed 30 ms.**
+Anyone re-running it on comparable hardware should land in the same place, and
+if they do not, that is a real finding about their environment rather than an
+artifact of ours.
+
+**0.0% of sampled transactions scored under 30ms, in all three runs.** This is
 nowhere close to claim C1, and per CLAUDE.md Rule 1 that is reported exactly
 as measured, not softened.
 
 ## Why the number is this high — and it is not primarily "Python is slow"
 
 **Measured correlation between transaction-history size and a
-transaction's own latency: r = 0.998** (run 2, the current run; r = 0.999 in
-run 1 — the effect reproduces at both). This is the dominant effect, and it
+transaction's own latency: r = 0.997** (run 3, the current run; 0.998 in run 2
+and 0.999 in run 1 — the effect reproduces in all three). This is the dominant
+effect, and it
 is a specific, fixable property of *this reference implementation*, not a
 general statement about EBT authorization latency:
 
@@ -112,8 +127,8 @@ calculation — rather than maintaining running per-terminal and
 per-household counters that a real production system would keep updated
 incrementally as transactions arrive. So a transaction scored once 130,000
 rows of history already exist costs measurably more (in this benchmark,
-roughly 1 second — run 2 max 1097.17 ms) than one scored on day one of the
-dataset (run 2 min 75.06 ms) — the r=0.998 correlation confirms latency is a
+roughly 1 second — run 3 max 1111.10 ms) than one scored on day one of the
+dataset (run 3 min 81.06 ms) — the r=0.997 correlation confirms latency is a
 direct function of history size, i.e. this implementation's cost is closer
 to O(n) per transaction than O(1).
 
@@ -137,7 +152,7 @@ implementation, and it fails the 30ms claim badly. It should not be read as
 stateful implementation (real running counters instead of full-history
 recompute) would very plausibly be in a completely different regime,
 closer to what C1 claims. Distinguishing "this implementation is slow" from
-"this approach is slow" is the whole point of reporting the r=0.998 finding
+"this approach is slow" is the whole point of reporting the r≈0.998 finding
 explicitly rather than only the raw percentile numbers — the raw numbers
 alone would make the miss look like a language/implementation problem
 scoped the same way as the "Python isn't compiled" caveat, when it's

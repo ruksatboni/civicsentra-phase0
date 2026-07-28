@@ -136,7 +136,13 @@ first one in the cluster doesn't.
 - **Window: 15 minutes. Flag threshold: 2+ prior neighbours.** Data-derived:
   95.33% of rows have zero prior same-terminal neighbours within 15 minutes,
   4.48% have one, only 0.19% have two or more — "2 or more" is where
-  ordinary terminal traffic essentially stops.
+  ordinary terminal traffic essentially stops. Reproducible by
+  `python src/neighbour_distribution.py` → `outputs/neighbour_distribution.md`,
+  which recomputes all three with an implementation independent of the one
+  above and agrees on all 137,080 rows. These were hand-measured figures in a
+  config comment until 2026-07-28; the script exists because a parameter set
+  from a number no script recomputes is a justification that cannot be
+  re-checked when the dataset changes.
 - Sub-score ramps with the actual count (2 → 0.25, up to 5+ → 1.0) rather
   than a flat flag, so a bigger burst scores higher.
 

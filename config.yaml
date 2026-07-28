@@ -139,6 +139,12 @@ features:
     # one, 0.19% have two or more -- "2 or more" is where ordinary traffic
     # essentially stops. Sub-score ramps with the actual count (see
     # features.py), so a bigger burst scores higher.
+    # Reproducible: `python src/neighbour_distribution.py` recomputes these
+    # three percentages, cross-checks them against features.py with a second
+    # independent implementation, and parses the figures back out of THIS
+    # comment to compare -- so if the dataset is regenerated and these drift,
+    # that script fails rather than leaving a stale justification in place.
+    # Last confirmed 2026-07-28: all three match, 137,080/137,080 rows agree.
     # MEASURED LIMITATION (measured 2026-07-25 and deliberately not tuned
     # away; the limitation is stated in full here and surfaced in
     # outputs/evaluate_metrics.md, not held in a separate document): this

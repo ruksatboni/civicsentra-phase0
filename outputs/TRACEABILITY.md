@@ -57,20 +57,55 @@ that computed it.
 All subgroup rates under n=200 carry a count and a Wilson 95% CI, produced by
 `wilson_ci()` → `rate_stat()` → `fmt_rate()`.
 
-## 2. `benchmark_latency.py` → `outputs/benchmark_latency.md`
+## 2. `benchmark_latency.py` → `outputs/benchmark_runs/<date>.md` + `outputs/benchmark_latency.md`
+
+Values below are run 3 (2026-07-28), the current run.
 
 | Figure | Value | Computed by |
 |---|---|---|
-| p50 / p95 / p99 | 640.08 / 1039.34 / 1088.05 ms | `run_benchmark()` → `percentile()` |
-| mean / min / max | 640.25 / 75.06 / 1097.17 ms | `run_benchmark()` |
+| p50 / p95 / p99 | 636.79 / 1044.21 / 1097.04 ms | `run_benchmark()` → `percentile()` |
+| mean / min / max | 636.81 / 81.06 / 1111.10 ms | `run_benchmark()` |
 | % under 30 ms (claim C1) | 0.0% of 300 samples | `main()` |
-| Correlation, history size vs. latency | r = 0.998 | `main()` |
+| Correlation, history size vs. latency | r = 0.997 | `main()` |
 | 20-point percentile distribution | p5–p95 | `percentile()` |
 | Hardware / OS / Python | Apple M3, macOS 26.5.2, 3.9.6 | `get_hardware_info()` |
 | Sample selection | 300 positions, seeded, from index 50 | `sample_positions()` |
 
 Timing covers feature computation + scoring, one transaction at a time; the CSV
 read is excluded. Not vectorized batch (SPEC.md §4.5).
+
+**Write-once archiving.** `main()` writes a dated archive to
+`outputs/benchmark_runs/` *before* touching the stable path, falls back to a
+second-resolution filename if the dated one exists, and raises rather than
+overwrite. `outputs/benchmark_latency.md` is a copy of the latest run kept at a
+stable path for citation. Surviving machine records:
+
+| Run | Date | p50 | Archive |
+|---|---|---|---|
+| 1 | 2026-07-25 | 635.69 ms | **none — overwritten by run 2** |
+| 2 | 2026-07-27 | 640.08 ms | `benchmark_runs/benchmark_latency_2026-07-27.md` |
+| 3 | 2026-07-28 | 636.79 ms | `benchmark_runs/benchmark_latency_2026-07-28.md` |
+
+The three-run stability claim in `explain/EXPLAIN_benchmark_latency.md` rests on
+runs 2 and 3, both archived. Run 1 is cited as historical prose and labelled as
+such.
+
+## 2b. `neighbour_distribution.py` → `outputs/neighbour_distribution.md`
+
+Recomputes the distribution that justifies `min_neighbours_flagged: 2`.
+
+| Figure | Value | Computed by |
+|---|---|---|
+| Zero prior same-terminal neighbours in 15 min | 130,678 rows (95.33%) | `independent_counts()` |
+| Exactly one | 6,145 rows (4.48%) | `independent_counts()` |
+| Two or more | 257 rows (0.19%) | `independent_counts()` |
+| Cross-check vs. `features.py` | 137,080 / 137,080 rows agree | `compute_terminal_temporal_neighbour()` |
+| Config comment vs. recomputed | 4 of 4 MATCH | `parse_claimed_from_config()` |
+
+Two independent implementations (pure-Python bisect here, numpy searchsorted in
+`features.py`), plus the claimed percentages parsed back out of `config.yaml`'s
+own comment and compared — so a stale comment surfaces as a MISMATCH and the
+script exits non-zero.
 
 ## 3. `robustness_realistic.py` → `outputs/robustness_realistic_prevalence.md`
 
@@ -140,17 +175,22 @@ integration, not a defect — see the output file for why.
 Reproducible by re-running, but **no file in `outputs/` captures them**, so a
 reader cannot check them without executing code.
 
-| Figure | Script | Note |
-|---|---|---|
-| Dataset shape: 137,080 rows, 2,000 households, 547 fraud, 339 N1, 1,686 N2, pattern counts, drawdown % | `ebt_generator.py` `main()` | Builds a `summary` dict and `print(yaml.dump(...))`s it. Published in README, SPEC and the data dictionary; persisted nowhere. |
-| Realistic-regime shape: 2,598,309 rows, 518 fraud | `ebt_generator.py` `main()` | Same. (The subset republished in `robustness_realistic_prevalence.md` *is* persisted.) |
-| Five rows beyond 2× home-zone radius: 283.55, 594.55, 690.57, 720.84, 748.41 miles | `features.py` `__main__` self-test | Seeded (`random_state=42`), so reproducible exactly. Cited in EXPLAIN_features.md. |
-| Max home distance 760.41 miles (`TXN00062284`, P5) | `features.py` `__main__` self-test | As above. |
-| Leakage-test result (sampled transactions, truncated vs. full features) | `test_leakage.py` `run()` | Pass/fail printed only. Cited as verification in several EXPLAIN files; no artifact records the run. |
-| Batch scoring runtime ~3.5 s for 137,080 rows | `scorer.py` | Informal timing cited in EXPLAIN_scorer.md; not benchmarked or persisted. |
+**Load-bearing** below means a published claim would weaken or change if the
+figure were wrong. Where it says no, the figure appears in prose and nothing
+depends on it — documented as an exception, deliberately not chased.
 
-**Recommended fix (not done here):** have `ebt_generator.py` and
-`test_leakage.py` write `outputs/` artifacts the way the other four scripts do.
+| Figure | Script | Load-bearing? |
+|---|---|---|
+| Leakage-test result: 34 sampled transactions, truncated vs. full features, pass/fail | `test_leakage.py` `run()` | **Yes.** README calls it "must pass before trusting anything" and EXPLAIN_features.md devotes a section to it, including a leakage bug it caught. A verification claim of that weight should not rest on a console message nobody kept. The strongest remaining gap. |
+| Dataset shape: 137,080 rows, 2,000 households, 547 fraud, 339 N1, 1,686 N2, pattern counts | `ebt_generator.py` `main()` | **Partly.** These are denominators for precision/recall. But `verify_independent.py` re-derives them from the CSV and its 8 population identities (547 + 136,533 = 137,080) hold, so the published figures *are* machine-checked downstream — just not by the script that produced them. The generator's drawdown-% and dsi figures are stdout-only but appear in no published file. |
+| Realistic-regime shape: 2,598,309 rows, 518 fraud | `ebt_generator.py` `main()` | **No.** The published subset is re-derived and persisted by `robustness_realistic.py` into `robustness_realistic_prevalence.md`. |
+| Five rows beyond 2× home-zone radius: 283.55, 594.55, 690.57, 720.84, 748.41 miles | `features.py` `__main__` self-test | **No.** Illustrative sample in EXPLAIN_features.md, explicitly labelled as not the five farthest. Seeded (`random_state=42`), so exactly reproducible on demand. |
+| Max home distance 760.41 miles (`TXN00062284`, P5) | `features.py` `__main__` self-test | **No.** Same self-test, same seed; a descriptive aside. |
+| Batch scoring runtime ~3.5 s for 137,080 rows | `scorer.py` | **No.** An informal aside in EXPLAIN_scorer.md, explicitly contrasted with the real per-transaction benchmark. Nothing rests on it. |
+
+**Recommended fix (not done here):** have `test_leakage.py` write an
+`outputs/` artifact the way the other scripts do. That is the one worth doing;
+the rest are fine as documented exceptions.
 
 ## 7. Figures no committed script computes — flagged as untraceable
 
@@ -160,34 +200,48 @@ were never committed. They are reproducible *in principle* from
 `data/ebt_synthetic.csv`, but nothing in the repo recomputes them today, so a
 regenerated dataset would not re-derive or re-validate them.
 
-| Figure | Appears in | Status |
+| Figure | Appears in | Load-bearing? |
 |---|---|---|
-| 6 of 130,631 legitimate consecutive pairs read as impossible travel without the 5-minute floor | `config.yaml:60`, `EXPLAIN_features.md:42` | No script computes this. Ad-hoc, 2026-07-25. |
-| Same-terminal 15-min neighbour distribution: 95.33% zero / 4.48% one / 0.19% two-or-more | `config.yaml:137`, `EXPLAIN_features.md:137` | No script computes this. Ad-hoc, 2026-07-25. Load-bearing: it is the stated justification for the "2 or more" threshold. |
-| Fraud rows that would ever trip the impossible-speed rule: 1 (primary) / 3 (realistic), none under 5 min | `EXPLAIN_features.md` §1 | No script computes this. Ad-hoc, 2026-07-25. |
-| Run 1 latency: p50 635.69, p95 1057.68, p99 1102.01, mean 639.96, min/max 79.04/1114.07 ms, r=0.999, macOS 26.5.1 | `EXPLAIN_benchmark_latency.md` §"measured twice", README §Latency | The script computed these on 2026-07-25, but run 2 **overwrote** `outputs/benchmark_latency.md`. Run 1 now survives only as prose. The two-run stability claim therefore rests on a figure with no surviving machine artifact. |
-| Data-dictionary observed values (amount median 17.86 / mean 27.15 / max 708.36; per-column counts and ranges) | `data/ebt_data_dictionary.md` | Stated as read from the file, which is credible and checkable by hand, but no committed script emits them. |
+| 6 of 130,631 legitimate consecutive pairs read as impossible travel without the 5-minute floor | `config.yaml:60`, `EXPLAIN_features.md:42` | **Yes.** It is the entire justification for the 5-minute minimum-elapsed-time floor — the same shape as the neighbour distribution closed below, and the strongest remaining §7 gap. A script recomputing it would close it the same way. |
+| Fraud rows that would ever trip the impossible-speed rule: 1 (primary) / 3 (realistic), none under 5 min | `EXPLAIN_features.md` §1 | **Yes, narrowly.** It supports one specific claim — that the 5-minute floor "costs nothing against real fraud". If wrong, the floor might be suppressing real detections. Same fix as the row above; naturally computed by the same script. |
+| Run 1 latency: p50 635.69, p95 1057.68, p99 1102.01, mean 639.96, min/max 79.04/1114.07 ms, r=0.999, macOS 26.5.1 | `EXPLAIN_benchmark_latency.md` §"measured three times", README §Latency | **No longer.** Run 2 overwrote it and the artifact is unrecoverable, but run 3 (2026-07-28) supplies a second archived measurement, so the stability claim now rests on runs 2 and 3 — both with machine records. Run 1 stays in the table as historical prose, labelled as having no artifact. The clobbering cause is fixed (§2). |
+| Data-dictionary observed values (amount median 17.86 / mean 27.15 / max 708.36; per-column counts and ranges) | `data/ebt_data_dictionary.md` | **No.** Descriptive column documentation, checkable by hand against the CSV; no result depends on it. |
 
-**The load-bearing one is the 95.33/4.48/0.19 distribution**, because a
-threshold was set from it. The run-1 latency figures are the second, because a
-reproducibility claim is built on them and the artifact was overwritten rather
-than kept — future runs should write to a timestamped file instead of
-clobbering.
+**Closed since the first version of this document:**
+
+| Figure | How it was closed |
+|---|---|
+| Same-terminal 15-min neighbour distribution: 95.33% / 4.48% / 0.19% | `src/neighbour_distribution.py` now recomputes it into `outputs/neighbour_distribution.md`, by two independent implementations that agree on all 137,080 rows, and parses the claimed figures back out of `config.yaml`'s comment to check them. All four match the hand-measured 2026-07-25 values exactly — the threshold's justification stands and is now reproducible. See §2b. |
+| Run 1 latency being the sole basis of a reproducibility claim | Run 3 executed 2026-07-28 with a write-once archive; the claim now rests on two surviving machine records. Reclassified above rather than deleted. |
+
+**The strongest remaining gaps are the 5-minute-floor figures here and the
+leakage-test result in §6.** Both are load-bearing, both are one small script
+away from being closed, and neither is closed today.
 
 ## 8. Summary
 
 - **Fully traceable, script → function → output file:** everything in
   `outputs/evaluate_metrics.md`, `outputs/benchmark_latency.md`,
+  `outputs/benchmark_runs/`, `outputs/neighbour_distribution.md`,
   `outputs/robustness_realistic_prevalence.md`,
   `outputs/INDEPENDENT_VERIFICATION.md`, and `data/ebt_scored.csv`.
 - **Independently machine-verified:** 34 headline metrics + 8 population
-  identities (§5).
-- **Computed but not persisted:** 6 figure groups (§6).
-- **Not computed by any committed script:** 6 figure groups (§7), two of them
-  load-bearing.
+  identities (§5), plus the neighbour distribution's two-implementation
+  agreement across all 137,080 rows (§2b).
+- **Computed but not persisted:** 6 figure groups (§6) — one load-bearing
+  (the leakage-test result), one partly so, four not.
+- **Not computed by any committed script:** 4 figure groups (§7) — two
+  load-bearing (both concerning the 5-minute geo-velocity floor), two not.
+
+**Correction to the first version of this document:** it said "twelve
+exceptions … six and six". The count was wrong — §7 listed five groups, not
+six, so the total was eleven. Closing the neighbour distribution and
+reclassifying run-1 latency leaves **ten**: six in §6, four in §7. The
+individual entries were and are correct; only the tally was off.
 
 SPEC.md's checklist item "Every number in the report traces to executed code"
 is marked met on the basis that every figure in `outputs/` is written by the
 script that computed it. That remains accurate as written. §6 and §7 above are
 the wider claim — every number in every *published* file — and by that
-standard the checklist item is met with the twelve exceptions listed.
+standard the checklist item is met with the ten exceptions listed, three of
+them load-bearing.

@@ -32,7 +32,7 @@ repository exists partly to say so.
 
 | Claim | Paper says | Measured here |
 |---|---|---|
-| C1 · Latency | Scoring completes under 30 ms | **Not supported.** p50 640.08 ms; 0% of sampled transactions under 30 ms |
+| C1 · Latency | Scoring completes under 30 ms | **Not supported.** p50 636.79 ms (635.69–640.08 across three runs); 0% of sampled transactions under 30 ms in any run |
 | C2 · Detection | Fraud reduced 60–80% | **Not supported as stated.** Recall measured at 72.94% (17.12% precision), but recall is not fraud reduction: shadow mode blocks nothing, so no reduction was or could be measured. The claim requires a live pilot |
 | C3 · Federated learning | Beats siloed models | **Not tested.** `federated.py` was not built. No evidence either way |
 | C4 · Cost ratio | Savings vastly exceed cost | **Partially supported, as a projection.** 3.15:1 to 4.52:1, above break-even but below the paper's §4.4 figure — both sides of the ratio are counterfactual |
@@ -131,17 +131,21 @@ number.**
 
 **Latency (C1)**
 
-- p50 640.08 ms, p95 1039.34 ms, p99 1088.05 ms, single transaction at a time
+- p50 636.79 ms, p95 1044.21 ms, p99 1097.04 ms, single transaction at a time
   (not vectorized batch). Apple M3, macOS 26.5.2, Python 3.9.6
-- **Measured twice, six days apart:** p50 635.69 ms on 2026-07-25 (macOS
-  26.5.1) and 640.08 ms on 2026-07-27 (macOS 26.5.2) — **0.7% apart across an
-  OS point update.** The benchmark is stable; the figure is a measurement, not
-  a one-off reading
-- **0% of sampled transactions scored under 30 ms**, in both runs. The cause is
-  architectural, not language choice: features are recomputed from full history
-  on every call rather than maintained incrementally, and latency correlates
-  with history size at r=0.998. A compiled rewrite would not by itself close
-  this gap
+- **Measured three times over four days:** p50 635.69 ms (2026-07-25, macOS
+  26.5.1), 640.08 ms (2026-07-27, macOS 26.5.2), 636.79 ms (2026-07-28) —
+  **0.69% between the extremes, across an OS point update and a regenerated
+  dataset.** The benchmark is stable; the figure is a measurement, not a
+  one-off reading. Runs 2 and 3 have machine records under
+  [`outputs/benchmark_runs/`](outputs/benchmark_runs/); run 1's was overwritten
+  before the benchmark archived its output, so it is cited as historical prose
+  and the stability claim rests on the two that survive
+- **0% of sampled transactions scored under 30 ms**, in all three runs. The
+  cause is architectural, not language choice: features are recomputed from
+  full history on every call rather than maintained incrementally, and latency
+  correlates with history size at r=0.997–0.999. A compiled rewrite would not
+  by itself close this gap
 
 ---
 
@@ -316,16 +320,44 @@ Run in order. Every parameter lives in `config.yaml`; `random_seed: 42` makes
 generation reproducible byte-for-byte.
 
 ```bash
-python src/ebt_generator.py      # -> data/ebt_synthetic.csv + data dictionary
-python src/scorer.py             # -> data/ebt_scored.csv (features + decisions)
-python src/evaluate.py           # -> outputs/evaluate_metrics.md
-python src/benchmark_latency.py  # -> outputs/benchmark_latency.md
-python src/test_leakage.py       # leakage test, must pass before trusting anything
+sh scripts/install-hooks.sh          # once per clone -- see "Git hooks" below
+```
+
+```bash
+python src/ebt_generator.py          # -> data/ebt_synthetic.csv + data dictionary
+python src/scorer.py                 # -> data/ebt_scored.csv (features + decisions)
+python src/evaluate.py               # -> outputs/evaluate_metrics.md
+python src/benchmark_latency.py      # -> outputs/benchmark_runs/<date>.md + benchmark_latency.md
+python src/neighbour_distribution.py # -> outputs/neighbour_distribution.md
+python src/test_leakage.py           # leakage test, must pass before trusting anything
+python src/verify_independent.py     # -> outputs/INDEPENDENT_VERIFICATION.md
 ```
 
 `src/report.py` — a single command regenerating everything with charts — is
 specified in `SPEC.md` §4.7 but **not built**. The sequence above is the
 current reproduction path.
+
+**The latency benchmark never overwrites a measurement.** It writes a
+write-once dated archive to `outputs/benchmark_runs/` first and refuses to
+clobber an existing one; `outputs/benchmark_latency.md` is a copy of the most
+recent run kept at a stable path for citation. This exists because an earlier
+version wrote only the stable path, and run 2 destroyed run 1's record — see
+`explain/EXPLAIN_benchmark_latency.md`. Cite the dated archive when you mean a
+specific run.
+
+**Git hooks.** `.git/hooks/` is not tracked by git, so hooks do not survive a
+clone — `scripts/install-hooks.sh` is the tracked copy and must be run once per
+clone. It installs an author-email lock: this repository commits under
+`placeholder@example.invalid`, and the hook aborts any commit whose author
+email is not on its allowlist (including an empty one). Verify it without
+committing:
+
+```bash
+sh scripts/pre-commit; echo $?
+```
+
+Before publishing, change the allowlist in `scripts/pre-commit` to a GitHub
+noreply address and re-stamp the existing history to match.
 
 **On the leakage test.** Every feature must be computable from information
 available at the moment a transaction arrives. `test_leakage.py` truncates the
@@ -343,7 +375,8 @@ before any result in this repository was produced.
 |---|---|
 | `SPEC.md` | Build specification, with a delivery record marking what was and was not built |
 | `config.yaml` | Every weight, threshold and breakpoint, each with its sourcing stated |
-| `src/` | Generator, features, scorer, evaluation, latency benchmark, leakage test |
+| `src/` | Generator, features, scorer, evaluation, latency benchmark, leakage test, independent verification, neighbour-distribution recompute |
+| `scripts/` | Tracked git hooks and their installer — `.git/hooks/` does not survive a clone |
 | `explain/` | One document per module: what it does, why, and its limitations |
 | `outputs/` | Measured results, written by the scripts that computed them |
 | `outputs/TRACEABILITY.md` | Every published figure mapped to the script and function that computed it, including the ones no committed script computes |
@@ -421,9 +454,9 @@ the Sparkov public dataset. Expected to perform worse — merchant-level
 reputation smears a signal that clusters at individual terminals — and that
 result is worth having either way.
 
-**4. Make latency a real measurement (C1).** Current p50 is 640.08 ms against
+**4. Make latency a real measurement (C1).** Current p50 is 636.79 ms against
 a claimed 30 ms, dominated by recomputing every feature from full history on
-each call (r=0.998 with history size). An incrementally stateful implementation
+each call (r=0.997 with history size). An incrementally stateful implementation
 maintaining running per-terminal and per-household counters would test whether
 the claim is achievable in principle. Until then C1 stands unsupported, and a
 compiled rewrite alone would not fix it.

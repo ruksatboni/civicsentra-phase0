@@ -15,7 +15,7 @@ one was not.
 
 | # | Claim | Paper § | How we test it | Status |
 |---|-------|---------|----------------|--------|
-| C1 | Scoring completes in under 30 ms | §4.2 | Per-transaction latency benchmark, p50/p95/p99, streaming not batched | **Tested — not supported.** p50 640.08 ms, p95 1039.34 ms, p99 1088.05 ms; 0% of sampled transactions under 30 ms. Two runs six days apart agree to 0.7% |
+| C1 | Scoring completes in under 30 ms | §4.2 | Per-transaction latency benchmark, p50/p95/p99, streaming not batched | **Tested — not supported.** p50 636.79 ms, p95 1044.21 ms, p99 1097.04 ms; 0% of sampled transactions under 30 ms. Three runs over four days agree to 0.69% at the median |
 | C2 | Fraud reduced 60–80% | §4.4 | Detection rate at operationally realistic false-positive rates | **Tested — partially supported.** 72.94% recall at the configured operating point, inside the claimed band, but at 17.12% precision; see §4.4 on the review-volume cost |
 | C3 | Federated learning beats siloed models without sharing raw data | §4.2, §7 | Three-partition federated averaging vs. local-only baselines | **NOT TESTED.** `federated.py` was cut from this sprint and is not built. No evidence is offered for C3 either way |
 | C4 | Savings vastly exceed cost ("spend 1, save 99") | §4.4, §6 | Dollar-weighted cost model producing the *actual* ratio | **Tested — partially supported.** See below |
@@ -24,7 +24,8 @@ one was not.
 bound at the median. The dominant cause is architectural, not language choice:
 `features.py` recomputes every feature from full history on each call rather
 than maintaining incremental state, and latency correlates with history size at
-r=0.998. A compiled reimplementation would not by itself close this gap.
+r=0.997–0.999 across three runs. A compiled reimplementation would not by
+itself close this gap.
 
 **C4 needs stating plainly:** Measured: 3.15:1 to 4.52:1 across the
 review-cost range. The paper's §4.4 figure of 20–80x is not supported; the §6
@@ -517,13 +518,21 @@ civicsentra-phase0/
 │   ├── evaluate.py
 │   ├── benchmark_latency.py
 │   ├── test_leakage.py
+│   ├── verify_independent.py
+│   ├── neighbour_distribution.py
 │   ├── federated.py          (v1.1 — not built)
 │   └── report.py             (v1.1 — not built)
+├── scripts/
+│   ├── pre-commit            (author-email lock; .git/hooks/ is untracked)
+│   └── install-hooks.sh
 ├── explain/
 │   └── EXPLAIN_*.md          (one per built module)
 ├── outputs/
 │   ├── evaluate_metrics.md
-│   ├── benchmark_latency.md
+│   ├── benchmark_latency.md  (copy of latest run, stable path for citation)
+│   ├── benchmark_runs/       (write-once dated archive, one file per run)
+│   ├── neighbour_distribution.md
+│   ├── INDEPENDENT_VERIFICATION.md
 │   └── TRACEABILITY.md
 └── paper/
     └── section9_draft.md
@@ -548,13 +557,14 @@ Status as of 2026-07-27.
       figure in `outputs/` is written by the script that computed it.
       `outputs/TRACEABILITY.md` maps each one to its script and function.
       Against the wider standard — every number in every *published* file, not
-      just `outputs/` — it is met with twelve exceptions, which that document
+      just `outputs/` — it is met with ten exceptions, which that document
       lists rather than omits: six figure groups that a script computes but
-      only prints to stdout, and six that no committed script computes at all.
-      Two of the latter are load-bearing (the same-terminal neighbour
-      distribution a threshold was set from, and the run-1 latency figures the
-      two-run stability claim rests on, whose artifact was overwritten by
-      run 2).
+      only prints to stdout, and four that no committed script computes at
+      all. Three are load-bearing: the leakage-test result, and the two
+      figures justifying geo-velocity's 5-minute floor. The neighbour
+      distribution a threshold was set from is no longer among them —
+      `neighbour_distribution.py` recomputes it and confirms all four
+      hand-measured values.
 - [x] **Limitations stated prominently in README and report** — met in
       README; the "report" half is subsumed by the EXPLAIN files and this
       document until `report.py` exists.

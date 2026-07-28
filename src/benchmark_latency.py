@@ -183,13 +183,41 @@ def main():
     for p in range(5, 100, 5):
         lines.append(f"  p{p}: {percentile(sorted_lat, p):.2f} ms")
 
+    # A wall-clock benchmark cannot be seeded into reproducibility -- it measures
+    # the machine, not just the code -- so each run is evidence in its own right
+    # and the archive is written FIRST, to a name no later run can take. An
+    # earlier version wrote only to outputs/benchmark_latency.md, so run 2
+    # destroyed run 1's machine record and left a two-run stability claim resting
+    # on prose. That must not happen again: if the dated name is already taken,
+    # fall back to a second-resolution name rather than overwrite, and if that is
+    # somehow taken too, refuse to write at all.
+    now = datetime.now(timezone.utc)
+    archive_dir = ROOT / "outputs" / "benchmark_runs"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    archive_path = archive_dir / f"benchmark_latency_{now.strftime('%Y-%m-%d')}.md"
+    if archive_path.exists():
+        archive_path = archive_dir / f"benchmark_latency_{now.strftime('%Y-%m-%dT%H-%M-%SZ')}.md"
+    if archive_path.exists():
+        raise SystemExit(f"refusing to overwrite an existing measurement: {archive_path}")
+
+    lines.append("")
+    lines.append("## Run identity")
+    lines.append(f"Archive of record: outputs/benchmark_runs/{archive_path.name} "
+                  "(write-once; never overwritten by a later run).")
+    lines.append("outputs/benchmark_latency.md is a copy of the most recent run, kept at a "
+                  "stable path for citation. Cite the archive when you mean a specific run.")
+
     report_text = "\n".join(lines)
     print(report_text)
 
-    out_path = ROOT / "outputs" / "benchmark_latency.md"
-    out_path.parent.mkdir(exist_ok=True)
-    out_path.write_text(report_text)
-    print(f"\nWrote {out_path.relative_to(ROOT)}")
+    archive_path.write_text(report_text)
+    print(f"\nWrote {archive_path.relative_to(ROOT)}  (archive of record)")
+
+    latest_path = ROOT / "outputs" / "benchmark_latency.md"
+    latest_path.parent.mkdir(exist_ok=True)
+    latest_path.write_text(report_text)
+    print(f"Wrote {latest_path.relative_to(ROOT)}  (copy of latest, safe to overwrite)")
 
 
 if __name__ == "__main__":

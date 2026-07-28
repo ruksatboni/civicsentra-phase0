@@ -158,5 +158,5 @@ results are in `outputs/evaluate_metrics.md`:
   boolean columns) — fine for this batch use, but this is not the
   per-transaction authorization-path timing `benchmark_latency.py` measures.
   That module scores one transaction at a time rather than reusing this batch
-  path, per SPEC.md §4.5, and it measured p50 640.08 ms — see
+  path, per SPEC.md §4.5, and it measured p50 636.79 ms — see
   `outputs/benchmark_latency.md` and `explain/EXPLAIN_benchmark_latency.md`.
