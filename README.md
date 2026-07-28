@@ -346,6 +346,7 @@ before any result in this repository was produced.
 | `src/` | Generator, features, scorer, evaluation, latency benchmark, leakage test |
 | `explain/` | One document per module: what it does, why, and its limitations |
 | `outputs/` | Measured results, written by the scripts that computed them |
+| `outputs/TRACEABILITY.md` | Every published figure mapped to the script and function that computed it, including the ones no committed script computes |
 | `data/ebt_data_dictionary.md` | Column-by-column description of the generated dataset |
 | `paper/section9_draft.md` | Draft of the paper section reporting these results |
 

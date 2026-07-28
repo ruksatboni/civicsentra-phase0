@@ -101,8 +101,11 @@ def main():
     cfg = load_config()
     df = pd.read_csv(ROOT / "data/ebt_synthetic.csv", parse_dates=["timestamp"])
     assert df["timestamp"].is_monotonic_increasing, (
-        "benchmark assumes the CSV is already chronologically sorted -- verified true for "
-        "data/ebt_synthetic.csv, see PROGRESS.md; if this ever changes, sort before truncating."
+        "benchmark assumes the CSV is already chronologically sorted -- guaranteed by "
+        "ebt_generator.py, which sorts by timestamp before writing (see its final "
+        "sort_values('timestamp') step). This assert is the check, not a comment: if the "
+        "generator ever stops sorting, this fails loudly instead of silently truncating "
+        "on the wrong rows."
     )
 
     positions = sample_positions(len(df), N_SAMPLES, MIN_POSITION, SEED)

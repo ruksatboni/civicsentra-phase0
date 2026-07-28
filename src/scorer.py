@@ -47,7 +47,8 @@ def compute_weighted_score(feats, cfg):
 
 def compute_decision(weighted_score, hard_override, cfg):
     """allow / step_up / block. Two independent paths to block (the author,
-    2026-07-25, PROGRESS.md): the weighted score crossing step_up_to_block
+    2026-07-25; rationale in explain/EXPLAIN_scorer.md, "Why this isn't a
+    plain weighted sum"): the weighted score crossing step_up_to_block
     via STACKED features, or geo-velocity's hard override firing ALONE.
     Neither path is a fallback for the other -- both are checked every time.
     """

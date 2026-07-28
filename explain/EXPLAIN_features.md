@@ -35,7 +35,8 @@ one where being wrong is close to physically impossible, not just unlikely.
   (SPEC.md §4.2).
 
 **Three things caught by testing this against real data before trusting it
-(all in `PROGRESS.md`, 2026-07-25):**
+(the author, 2026-07-25; each is recorded in full below rather than by
+reference, so nothing here depends on a document outside this repository):**
 
 1. **A 5-minute minimum-elapsed-time floor exists because of a measured
    rounding artifact, not a domain figure.** With no floor, 6 of 130,631

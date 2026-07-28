@@ -98,7 +98,8 @@ as measured, not softened.
 ## Why the number is this high — and it is not primarily "Python is slow"
 
 **Measured correlation between transaction-history size and a
-transaction's own latency: r = 0.999.** This is the dominant effect, and it
+transaction's own latency: r = 0.998** (run 2, the current run; r = 0.999 in
+run 1 — the effect reproduces at both). This is the dominant effect, and it
 is a specific, fixable property of *this reference implementation*, not a
 general statement about EBT authorization latency:
 
@@ -111,8 +112,8 @@ calculation — rather than maintaining running per-terminal and
 per-household counters that a real production system would keep updated
 incrementally as transactions arrive. So a transaction scored once 130,000
 rows of history already exist costs measurably more (in this benchmark,
-roughly 1 second) than one scored on day one of the dataset (roughly
-80ms) — the r=0.998 correlation confirms latency here is essentially a
+roughly 1 second — run 2 max 1097.17 ms) than one scored on day one of the
+dataset (run 2 min 75.06 ms) — the r=0.998 correlation confirms latency is a
 direct function of history size, i.e. this implementation's cost is closer
 to O(n) per transaction than O(1).
 

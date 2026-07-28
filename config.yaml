@@ -139,7 +139,9 @@ features:
     # one, 0.19% have two or more -- "2 or more" is where ordinary traffic
     # essentially stops. Sub-score ramps with the actual count (see
     # features.py), so a bigger burst scores higher.
-    # MEASURED LIMITATION (not tuned away, PROGRESS.md 2026-07-25): this
+    # MEASURED LIMITATION (measured 2026-07-25 and deliberately not tuned
+    # away; the limitation is stated in full here and surfaced in
+    # outputs/evaluate_metrics.md, not held in a separate document): this
     # window/threshold flags 14.1% of P8 (PIN-guessing -- lower than a
     # bidirectional count would show, since only the later attempts in each
     # burst have prior neighbours to see) and 1.28% of P3, but 0% of P6

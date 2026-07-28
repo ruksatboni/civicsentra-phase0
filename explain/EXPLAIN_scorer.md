@@ -16,7 +16,8 @@ Every number below came from running `python src/scorer.py` against
 
 SPEC.md §4.3 describes a pure linear-weighted-sum design: six sub-scores,
 weights summing to 1.0, final score = weighted sum × 100. The author's core design
-principle (2026-07-25, PROGRESS.md) is that **only geo-velocity's
+principle (2026-07-25; see `explain/EXPLAIN_features.md` §1, "the one
+hard-override rule") is that **only geo-velocity's
 impossible-travel case may ever block a transaction on its own** — every
 other signal must stack with at least one other signal to reach block,
 because a false block on EBT means a person can't buy food that day, often
@@ -114,8 +115,8 @@ decision counts, fraud_pattern=N1: allow 284      | step_up 55   | block 0
 ```
 
 Read carefully — these are description, not a claimed performance figure;
-`evaluate.py` (not yet built) is what computes precision/recall/PR-AUC
-properly:
+`evaluate.py` is what computes precision/recall/PR-AUC properly, and its
+results are in `outputs/evaluate_metrics.md`:
 
 - **Zero N1 rows reach `block`.** Consistent with the design: the only rule
   that can fire on N1 crossing cases (issuance-day fast-drain, weight 0.10,
@@ -142,8 +143,10 @@ properly:
   or the dollar cost matrix.
 - Does not report the step-up rate on the 48 legitimate crossing-boundary
   N1 cases specifically, even though `config.yaml`'s `ebt_policy_rules`
-  comment requires it — that is `evaluate.py`'s job (not yet built) and is
-  flagged in `PROGRESS.md` so it isn't lost before that module exists.
+  comment requires it — that is `evaluate.py`'s job, and `evaluate.py` now
+  does it: see `outputs/evaluate_metrics.md` §7, which reports 48/48 =
+  100.00% of the crossing subset flagged (all `step_up`, none blocked),
+  with a 95% CI because the subgroup is under 200 cases.
 - Does not distinguish, in the decision column itself, *which* of the two
   block paths (stacked score vs. hard override) produced a given `block` —
   that distinction is recoverable from `geo_hard_override` and
@@ -153,6 +156,7 @@ properly:
   137,080-row dataset in ~3.5 seconds via vectorized pandas operations
   (except the reason-code assembly, which is a row-wise `apply` over 10
   boolean columns) — fine for this batch use, but this is not the
-  per-transaction authorization-path timing `benchmark_latency.py` (not yet
-  built) will measure; that module must score one transaction at a time,
-  not reuse this batch path, per SPEC.md §4.5.
+  per-transaction authorization-path timing `benchmark_latency.py` measures.
+  That module scores one transaction at a time rather than reusing this batch
+  path, per SPEC.md §4.5, and it measured p50 640.08 ms — see
+  `outputs/benchmark_latency.md` and `explain/EXPLAIN_benchmark_latency.md`.

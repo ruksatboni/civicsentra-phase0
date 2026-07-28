@@ -523,7 +523,8 @@ civicsentra-phase0/
 │   └── EXPLAIN_*.md          (one per built module)
 ├── outputs/
 │   ├── evaluate_metrics.md
-│   └── benchmark_latency.md
+│   ├── benchmark_latency.md
+│   └── TRACEABILITY.md
 └── paper/
     └── section9_draft.md
 ```
@@ -545,6 +546,15 @@ Status as of 2026-07-27.
       met for all five built modules.
 - [x] **Every number in the report traces to executed code** — met. Every
       figure in `outputs/` is written by the script that computed it.
+      `outputs/TRACEABILITY.md` maps each one to its script and function.
+      Against the wider standard — every number in every *published* file, not
+      just `outputs/` — it is met with twelve exceptions, which that document
+      lists rather than omits: six figure groups that a script computes but
+      only prints to stdout, and six that no committed script computes at all.
+      Two of the latter are load-bearing (the same-terminal neighbour
+      distribution a threshold was set from, and the run-1 latency figures the
+      two-run stability claim rests on, whose artifact was overwritten by
+      run 2).
 - [x] **Limitations stated prominently in README and report** — met in
       README; the "report" half is subsumed by the EXPLAIN files and this
       document until `report.py` exists.

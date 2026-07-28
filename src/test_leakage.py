@@ -49,7 +49,10 @@ def pick_sample(df, full_feats, n_random=15):
             ids.add(rng.choice(rows))
 
     # the known geo-velocity impossible-override rows (both the correctly-caught
-    # fraud row and the collateral-victim rows -- PROGRESS.md 2026-07-25)
+    # fraud row and the collateral-victim rows -- the victim's own next
+    # legitimate transaction, hard-blocked because velocity is measured against
+    # the fraudster's location rather than the victim's prior movement; see
+    # explain/EXPLAIN_features.md §1 item 3, "shadow-mode collateral trigger")
     ids.update(full_feats.index[full_feats["geo_velocity_impossible_override"]].tolist())
 
     # known first-transaction-per-household edge cases (not scoreable for geo-velocity)
