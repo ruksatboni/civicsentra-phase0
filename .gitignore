@@ -22,3 +22,10 @@ outputs/PUBLICATION_REVIEW.md
 outputs/day1_sample_rows.csv
 paper/*.docx
 *.docx
+
+# The paper's own draft section, moved out on 2026-07-28. Publishing a draft
+# section of an unrevised paper would create a window where this repository
+# reports p50 ~637 ms and the paper still claims sub-30 ms. It goes public with
+# the revised paper, not before.
+paper/section9_draft.md
+paper/

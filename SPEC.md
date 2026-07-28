@@ -537,9 +537,13 @@ civicsentra-phase0/
 │   ├── LEAKAGE_TEST.md
 │   ├── INDEPENDENT_VERIFICATION.md
 │   └── TRACEABILITY.md
-└── paper/
-    └── section9_draft.md
 ```
+
+The paper's own draft section is **not** in this repository. It reports these
+results, but the paper it belongs to has not yet been revised to match them —
+publishing the draft alongside a repository that measures p50 ≈ 637 ms, while
+the paper still claims sub-30 ms, would put two contradictory numbers under the
+same name. It is published with the revised paper, not before.
 
 Generated datasets (`data/ebt_synthetic.csv`, `data/ebt_scored.csv`) are
 reproduced by running the pipeline; see README for whether they are

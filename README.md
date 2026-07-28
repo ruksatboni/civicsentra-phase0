@@ -395,7 +395,6 @@ evidence rather than only a console message.
 | `outputs/` | Measured results, written by the scripts that computed them |
 | `outputs/TRACEABILITY.md` | Every published figure mapped to the script and function that computed it, including the ones no committed script computes |
 | `data/ebt_data_dictionary.md` | Column-by-column description of the generated dataset |
-| `paper/section9_draft.md` | Draft of the paper section reporting these results |
 
 **Sourcing discipline.** Fraud patterns P1–P8 come from the public record —
 primarily GAO-25-107964 — and every parameter is either cited or explicitly
