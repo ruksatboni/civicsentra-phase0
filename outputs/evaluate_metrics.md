@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-29 03:09:00 UTC from data/ebt_scored.csv (137,080 rows).
+Generated 2026-07-29 07:27:52 UTC from data/ebt_scored.csv (137,080 rows).
 Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
@@ -262,3 +262,70 @@ Same quantity at the configured threshold 20 (section 1's figure, recomputed her
   threshold 20: 99.14%  ->  threshold 26: 100.00%  ->  threshold 30: 100.00%
 The share does not merely hold as the threshold rises -- it saturates. At thresholds 26, 30 every single ordinary-legitimate false positive falls after its own household's fraud: not a predominance, exactly none on never-defrauded households, against 16 such false positives at threshold 20. The 'at the tightest settings examined they are nothing else at all' claim is therefore verified at the tightest threshold examined here (30), not extrapolated to it.
 Read with section 12: raising the threshold does not dilute the victim-contamination mechanism, it concentrates it. The false positives that survive a higher threshold are more purely victims' own post-fraud transactions, not less.
+
+## 15. P8 detection attribution -- is POLICY_BALANCE_PROBE_THEN_PURCHASE the detector?
+A sentence drafted for the paper says the detected P8 rows are exactly the rows where POLICY_BALANCE_PROBE_THEN_PURCHASE fires. Section 5 gives the detection count and section 1 gives reason codes, but neither can confirm a set equality, and neither can say whether the code that coincides with the detections is the one that produced them. This section separates those two questions, because they have different answers.
+
+### 15a. Set equality (P8, n=78)
+  detected (decision != allow)          : 20
+  balance-probe fires                   : 20
+  detected but probe silent             : 0
+  probe fires but not detected          : 0
+  SETS ARE IDENTICAL: True
+  decisions on the detected rows: {'step_up': 20}  (risk_score 29.80-45.83)
+
+### 15b. Reason-code census across all 78 P8 rows
+
+DETECTED (n=20) -- 3.45 codes/row (min 3, max 6):
+  POLICY_BALANCE_PROBE_THEN_PURCHASE      20 of  20  (100.0%)
+  SPEND_BASELINE_HIGH_DRAW                20 of  20  (100.0%)
+  TERMINAL_REPUTATION_ELEVATED            20 of  20  (100.0%)
+  HOME_LOCATION_OUT_OF_ZONE                4 of  20  ( 20.0%)
+  TERMINAL_NEIGHBOUR_CLUSTER               4 of  20  ( 20.0%)
+  HOME_LOCATION_NIGHT_AMPLIFIED            1 of  20  (  5.0%)
+  exact code sets on these 20 rows:
+     13x  POLICY_BALANCE_PROBE_THEN_PURCHASE + SPEND_BASELINE_HIGH_DRAW + TERMINAL_REPUTATION_ELEVATED
+      3x  POLICY_BALANCE_PROBE_THEN_PURCHASE + SPEND_BASELINE_HIGH_DRAW + TERMINAL_NEIGHBOUR_CLUSTER + TERMINAL_REPUTATION_ELEVATED
+      3x  HOME_LOCATION_OUT_OF_ZONE + POLICY_BALANCE_PROBE_THEN_PURCHASE + SPEND_BASELINE_HIGH_DRAW + TERMINAL_REPUTATION_ELEVATED
+      1x  HOME_LOCATION_NIGHT_AMPLIFIED + HOME_LOCATION_OUT_OF_ZONE + POLICY_BALANCE_PROBE_THEN_PURCHASE + SPEND_BASELINE_HIGH_DRAW + TERMINAL_NEIGHBOUR_CLUSTER + TERMINAL_REPUTATION_ELEVATED
+
+MISSED (n=58) -- 1.34 codes/row (min 1, max 3):
+  TERMINAL_REPUTATION_ELEVATED            47 of  58  ( 81.0%)
+  HOME_LOCATION_OUT_OF_ZONE               11 of  58  ( 19.0%)
+  NO_RISK_SIGNALS_DETECTED                11 of  58  ( 19.0%)
+  TERMINAL_NEIGHBOUR_CLUSTER               7 of  58  ( 12.1%)
+  HOME_LOCATION_NIGHT_AMPLIFIED            2 of  58  (  3.4%)
+  exact code sets on these 58 rows:
+     31x  TERMINAL_REPUTATION_ELEVATED
+     11x  NO_RISK_SIGNALS_DETECTED
+      7x  HOME_LOCATION_OUT_OF_ZONE + TERMINAL_REPUTATION_ELEVATED
+      5x  TERMINAL_NEIGHBOUR_CLUSTER + TERMINAL_REPUTATION_ELEVATED
+      2x  HOME_LOCATION_NIGHT_AMPLIFIED + HOME_LOCATION_OUT_OF_ZONE + TERMINAL_REPUTATION_ELEVATED
+      2x  HOME_LOCATION_OUT_OF_ZONE + TERMINAL_NEIGHBOUR_CLUSTER + TERMINAL_REPUTATION_ELEVATED
+
+### 15c. Is the probe the only code with that property?
+Every code appearing on any P8 row was tested for the exact property the drafted sentence asserts of the probe: fires on all detected rows, fires on no missed row.
+  codes with that property: POLICY_BALANCE_PROBE_THEN_PURCHASE, SPEND_BASELINE_HIGH_DRAW
+So the set equality does NOT single out POLICY_BALANCE_PROBE_THEN_PURCHASE. SPEND_BASELINE_HIGH_DRAW is equally set-identical to the detections, and the same sentence could be written about it verbatim. The equality identifies a collinear group, not a detector.
+
+### 15d. Ablation -- which of them carries the points?
+Each candidate's points subtracted from the detected rows' scores, then allow/step_up/block recomputed by the same two-path rule scorer.py uses (the identical method section 11 applies to the neighbour family):
+  drop ebt_policy_rules_subscore_points     -> 20 of 20 still alert
+  drop spend_baseline_subscore_points       ->  1 of 20 still alert
+  drop both                                 ->  0 of 20 still alert
+
+Points on the detected rows: policy family [4.5] of a possible 10.0; spend_baseline [25.0] of a possible 25.0.
+Neither other rule in the policy family fires on any detected row (POLICY_OUT_OF_STATE: 0, POLICY_ISSUANCE_DAY_FAST_DRAIN: 0), and the family's sub-score is a max over the three rules, so subtracting the family column removes exactly the balance-probe rule's contribution -- the ablation above is exact, not an upper bound.
+
+Removing the probe's points changes no decision: all 20 rows still alert without it. Removing spend_baseline's leaves 1. The probe is set-identical to the detections and decisive in none of them -- spend_baseline is what carries them across the threshold, saturated at 25.0 of 25.0 points on every detected row.
+Safe phrasing for the paper: all 20 detected P8 rows carry POLICY_BALANCE_PROBE_THEN_PURCHASE and no missed row does -- but so does SPEND_BASELINE_HIGH_DRAW, and only the latter's points are load-bearing. Any wording where 'exactly the balance-probe rows' carries the weight of 'balance-probe caught them' is not supported by this run.
+
+### 15e. Run-wide -- is the collinearity a property of the scorer?
+15a-15d are scoped to P8. If POLICY_BALANCE_PROBE_THEN_PURCHASE implied SPEND_BASELINE_HIGH_DRAW everywhere, the collinearity would be structural; if it holds only inside this pattern, it is a property of how the pattern is generated. Measured across all 137,080 rows:
+  POLICY_BALANCE_PROBE_THEN_PURCHASE fires 122 times in total
+    by pattern: ordinary_legitimate (63), P3 (38), P8 (20), N2 (1)
+    of those, 58 co-occur with SPEND_BASELINE_HIGH_DRAW and 64 do not
+    probe rows that alert: 56 of 122
+    probe-WITHOUT-spend_baseline rows that alert: 0 of 64
+  collinear run-wide (every probe firing carries SPEND_BASELINE_HIGH_DRAW): False
+The collinearity is NOT structural -- it holds inside P8, not across the run. And the 64 rows where the probe fires without spend_baseline alert zero times, which is the cleanest statement of the finding: at 4.5 points the balance-probe rule cannot cross the 20-point alert threshold on its own anywhere in this evaluation. It is never observed detecting anything alone.

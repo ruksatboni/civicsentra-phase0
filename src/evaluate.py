@@ -75,6 +75,23 @@ FP_COMPOSITION_BASELINE = 20  # current allow_to_step_up; the anchor to measure 
 # at the tightest setting, not extrapolated to it from 26.
 VICTIM_SPLIT_THRESHOLDS = [26, 30]
 
+# Section 15 checks a claim drafted for the paper: that the detected P8 rows are
+# exactly the rows where the balance-probe policy rule fires. Set equality is
+# only half the question -- a code can coincide with every detection and still
+# contribute none of the points that produced them, so the pattern, the two
+# codes and their point columns are named here and the attribution is measured.
+ATTRIBUTION_PATTERN = "P8"
+PROBE_REASON_CODE = "POLICY_BALANCE_PROBE_THEN_PURCHASE"
+PROBE_POINTS_COL = "ebt_policy_rules_subscore_points"
+SPEND_REASON_CODE = "SPEND_BASELINE_HIGH_DRAW"
+SPEND_POINTS_COL = "spend_baseline_subscore_points"
+# The other two rules in the ebt_policy_rules family. The family's published
+# sub-score is max(out_of_state, fast_drain, balance_probe) -- not a sum
+# (features.compute_ebt_policy_rules) -- so subtracting PROBE_POINTS_COL
+# isolates the balance-probe rule ONLY on rows where neither of these fires.
+# Whether that holds is checked below rather than assumed.
+OTHER_POLICY_REASON_CODES = ["POLICY_OUT_OF_STATE", "POLICY_ISSUANCE_DAY_FAST_DRAIN"]
+
 
 # ---------------------------------------------------------------------------
 # Small-n statistics
@@ -768,6 +785,166 @@ def threshold_pair_comparison(out, pairs):
 
 
 # ---------------------------------------------------------------------------
+# Which feature actually detects P8?
+#
+# A sentence drafted for the paper says the detected P8 rows are exactly the
+# rows where POLICY_BALANCE_PROBE_THEN_PURCHASE fires. Section 5 gives the
+# detection count and section 1 gives reason codes, but neither can confirm a
+# set equality, and -- more importantly -- neither can tell whether the code
+# that coincides with the detections is the one that caused them.
+#
+# It is not, here. SPEND_BASELINE_HIGH_DRAW fires on exactly the same rows, so
+# the set equality identifies a collinear pair rather than a detector, and the
+# ablation below shows which member of the pair carries the points. A reader
+# who takes "exactly the balance-probe rows" to mean "balance-probe caught
+# them" would be drawing a conclusion this run does not support, which is why
+# the ablation belongs next to the set-equality check rather than in a
+# follow-up.
+# ---------------------------------------------------------------------------
+
+def _code_fires(out, code):
+    """Boolean mask: does `code` appear in the row's reason_codes?
+
+    Splits on the delimiter rather than substring-matching, so a code that is a
+    prefix of another (POLICY_OUT_OF_STATE vs. a future POLICY_OUT_OF_STATE_X)
+    cannot produce a false positive here.
+    """
+    return out["reason_codes"].str.split("|").apply(lambda c: code in c)
+
+
+def _reason_code_census(out, mask):
+    """Per-code firing counts over the rows in `mask`, plus the exact code SETS
+    and how many codes each row carries. Sets matter for this section: a code
+    appearing on 100% of a group is only interesting alongside what else
+    appears with it."""
+    sub = out.loc[mask, "reason_codes"].str.split("|")
+    n = int(mask.sum())
+    counts = {}
+    for lst in sub:
+        for code in lst:
+            counts[code] = counts.get(code, 0) + 1
+    combos = {}
+    for lst in sub:
+        key = tuple(sorted(lst))
+        combos[key] = combos.get(key, 0) + 1
+    sizes = [len(lst) for lst in sub]
+    return {
+        "n": n,
+        "counts": sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])),
+        "combos": sorted(combos.items(), key=lambda kv: -kv[1]),
+        "codes_per_row": {"min": min(sizes) if sizes else 0,
+                          "max": max(sizes) if sizes else 0,
+                          "mean": sum(sizes) / n if n else float("nan")},
+    }
+
+
+def detector_attribution(out, cfg, pattern=ATTRIBUTION_PATTERN):
+    """Does POLICY_BALANCE_PROBE_THEN_PURCHASE identify -- and does it cause --
+    the detections on `pattern`?
+
+    Three questions, answered separately because they have different answers:
+
+      1. Set equality. Is {rows where the probe fires} == {detected rows}?
+      2. Uniqueness. Is the probe the ONLY code with that property, or do
+         other codes fire on every detection and no miss as well? Computed
+         over all codes present, not checked against a typed-in list, so a
+         second collinear code cannot go unnoticed.
+      3. Attribution. Re-decide the detected rows with each candidate's points
+         subtracted (and with both subtracted) using the same two-path rule
+         scorer.py applies. A code that coincides with every detection but
+         whose removal changes no decision did not detect anything.
+
+    The run-wide probe census at the end answers the question the
+    pattern-scoped view cannot: whether the probe/spend-baseline collinearity
+    is a property of the scorer or an artefact of this pattern.
+    """
+    pat = out["fraud_pattern"] == pattern
+    alerted = out["decision"] != "allow"
+    detected, missed = pat & alerted, pat & ~alerted
+    probe = _code_fires(out, PROBE_REASON_CODE)
+    spend = _code_fires(out, SPEND_REASON_CODE)
+
+    # -- 1: set equality ----------------------------------------------------
+    n_detected = int(detected.sum())
+    n_probe = int((pat & probe).sum())
+    equality = {
+        "n_pattern": int(pat.sum()),
+        "n_detected": n_detected,
+        "n_probe_fires": n_probe,
+        "detected_without_probe": int((detected & ~probe).sum()),
+        "probe_without_detected": int((missed & probe).sum()),
+        "exact_match": bool((probe[pat] == alerted[pat]).all()),
+    }
+
+    # -- 2: every code that is set-identical to the detection ---------------
+    # "Fires on all detected rows AND on no missed row" -- the property the
+    # drafted claim asserts of the probe. Any code with it is equally entitled
+    # to the sentence, which is the point.
+    all_codes = sorted({c for lst in out.loc[pat, "reason_codes"].str.split("|") for c in lst})
+    coincident = []
+    for code in all_codes:
+        fires = _code_fires(out, code)
+        on_detected, on_missed = int((detected & fires).sum()), int((missed & fires).sum())
+        if on_detected == n_detected and on_missed == 0 and n_detected:
+            coincident.append(code)
+
+    # -- 3: ablation --------------------------------------------------------
+    # The policy family's published sub-score is a max over three rules, so
+    # subtracting the family column isolates the balance-probe rule only where
+    # the other two are silent. Checked, not assumed.
+    other_policy_on_detected = {
+        code: int((detected & _code_fires(out, code)).sum()) for code in OTHER_POLICY_REASON_CODES
+    }
+    probe_ablation_is_exact = all(v == 0 for v in other_policy_on_detected.values())
+
+    d = out[detected]
+    hard_override = d["geo_hard_override"].astype(bool)
+
+    def still_alerts(drop_cols):
+        score = d["risk_score"] - sum(d[c] for c in drop_cols)
+        return int((_decision_from_score(score, hard_override, cfg) != "allow").sum())
+
+    ablation = {
+        "drop_probe": still_alerts([PROBE_POINTS_COL]),
+        "drop_spend": still_alerts([SPEND_POINTS_COL]),
+        "drop_both": still_alerts([PROBE_POINTS_COL, SPEND_POINTS_COL]),
+        "probe_points_on_detected": sorted(d[PROBE_POINTS_COL].round(2).unique().tolist()),
+        "spend_points_on_detected": sorted(d[SPEND_POINTS_COL].round(2).unique().tolist()),
+        "spend_points_max_possible": cfg["scoring"]["weights"]["spend_baseline"] * 100,
+        "policy_points_max_possible": cfg["scoring"]["weights"]["ebt_policy_rules"] * 100,
+        "probe_ablation_is_exact": probe_ablation_is_exact,
+        "other_policy_on_detected": other_policy_on_detected,
+        "score_min": float(d["risk_score"].min()),
+        "score_max": float(d["risk_score"].max()),
+        "decisions": d["decision"].value_counts().to_dict(),
+    }
+
+    # -- run-wide probe census ---------------------------------------------
+    probe_only = probe & ~spend
+    run_wide = {
+        "n_probe_total": int(probe.sum()),
+        "by_pattern": sorted(
+            out.loc[probe, "fraud_pattern"].fillna("ordinary_legitimate").value_counts().items(),
+            key=lambda kv: -kv[1]),
+        "n_probe_and_spend": int((probe & spend).sum()),
+        "n_probe_without_spend": int(probe_only.sum()),
+        "n_probe_without_spend_alerted": int((probe_only & alerted).sum()),
+        "n_probe_alerted": int((probe & alerted).sum()),
+        "collinear_run_wide": bool(probe.sum() and (spend[probe]).all()),
+    }
+
+    return {
+        "pattern": pattern,
+        "equality": equality,
+        "coincident_codes": coincident,
+        "detected_census": _reason_code_census(out, detected),
+        "missed_census": _reason_code_census(out, missed),
+        "ablation": ablation,
+        "run_wide": run_wide,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Report assembly
 # ---------------------------------------------------------------------------
 
@@ -1319,6 +1496,136 @@ def build_report(out, cfg):
         "Read with section 12: raising the threshold does not dilute the victim-contamination "
         "mechanism, it concentrates it. The false positives that survive a higher threshold "
         "are more purely victims' own post-fraud transactions, not less.")
+    lines.append("")
+
+    # -- 15: what actually detects P8 ----------------------------------------
+    da = detector_attribution(out, cfg)
+    eq, ab, rw = da["equality"], da["ablation"], da["run_wide"]
+    _pat = da["pattern"]
+    lines.append(f"## 15. {_pat} detection attribution -- is {PROBE_REASON_CODE} the detector?")
+    lines.append(
+        f"A sentence drafted for the paper says the detected {_pat} rows are exactly the rows "
+        f"where {PROBE_REASON_CODE} fires. Section 5 gives the detection count and section 1 "
+        "gives reason codes, but neither can confirm a set equality, and neither can say "
+        "whether the code that coincides with the detections is the one that produced them. "
+        "This section separates those two questions, because they have different answers.")
+
+    lines.append(f"\n### 15a. Set equality ({_pat}, n={eq['n_pattern']})")
+    lines.append(f"  detected (decision != allow)          : {eq['n_detected']}")
+    lines.append(f"  balance-probe fires                   : {eq['n_probe_fires']}")
+    lines.append(f"  detected but probe silent             : {eq['detected_without_probe']}")
+    lines.append(f"  probe fires but not detected          : {eq['probe_without_detected']}")
+    lines.append(f"  SETS ARE IDENTICAL: {eq['exact_match']}")
+    lines.append(f"  decisions on the detected rows: {ab['decisions']}  "
+                  f"(risk_score {ab['score_min']:.2f}-{ab['score_max']:.2f})")
+
+    lines.append(f"\n### 15b. Reason-code census across all {eq['n_pattern']} {_pat} rows")
+    for label, census in [("DETECTED", da["detected_census"]), ("MISSED", da["missed_census"])]:
+        cpr = census["codes_per_row"]
+        lines.append(f"\n{label} (n={census['n']}) -- {cpr['mean']:.2f} codes/row "
+                      f"(min {cpr['min']}, max {cpr['max']}):")
+        for code, k in census["counts"]:
+            lines.append(f"  {code:<38} {k:>3} of {census['n']:>3}  "
+                          f"({k / census['n'] * 100:5.1f}%)")
+        lines.append(f"  exact code sets on these {census['n']} rows:")
+        for combo, k in census["combos"]:
+            lines.append(f"    {k:>3}x  {' + '.join(combo)}")
+
+    # The list of set-identical codes is computed over every code present, not
+    # checked against a typed-in pair, so if the data changes and the probe
+    # becomes the only one, this section says so instead of asserting a stale
+    # collinearity.
+    others = [c for c in da["coincident_codes"] if c != PROBE_REASON_CODE]
+    lines.append("\n### 15c. Is the probe the only code with that property?")
+    lines.append(
+        "Every code appearing on any " + _pat + " row was tested for the exact property the "
+        "drafted sentence asserts of the probe: fires on all detected rows, fires on no "
+        "missed row.")
+    lines.append("  codes with that property: " + ", ".join(da["coincident_codes"]))
+    if others:
+        lines.append(
+            f"So the set equality does NOT single out {PROBE_REASON_CODE}. "
+            + ", ".join(others) + " " + ("is" if len(others) == 1 else "are")
+            + " equally set-identical to the detections, and the same sentence could be "
+              "written about " + ("it" if len(others) == 1 else "them") + " verbatim. The "
+              "equality identifies a collinear group, not a detector.")
+    else:
+        lines.append(f"{PROBE_REASON_CODE} is the only code with that property on this run.")
+
+    lines.append("\n### 15d. Ablation -- which of them carries the points?")
+    lines.append(
+        "Each candidate's points subtracted from the detected rows' scores, then "
+        "allow/step_up/block recomputed by the same two-path rule scorer.py uses "
+        "(the identical method section 11 applies to the neighbour family):")
+    lines.append(f"  drop {PROBE_POINTS_COL:<36} -> {ab['drop_probe']:>2} of "
+                  f"{eq['n_detected']} still alert")
+    lines.append(f"  drop {SPEND_POINTS_COL:<36} -> {ab['drop_spend']:>2} of "
+                  f"{eq['n_detected']} still alert")
+    lines.append(f"  drop both{'':<32} -> {ab['drop_both']:>2} of "
+                  f"{eq['n_detected']} still alert")
+    lines.append(
+        f"\nPoints on the detected rows: policy family {ab['probe_points_on_detected']} of a "
+        f"possible {ab['policy_points_max_possible']:.1f}; spend_baseline "
+        f"{ab['spend_points_on_detected']} of a possible "
+        f"{ab['spend_points_max_possible']:.1f}.")
+    # The policy sub-score is max(out_of_state, fast_drain, balance_probe), so
+    # the family column equals the probe's own contribution only where the
+    # other two rules are silent. Stated either way rather than assumed.
+    if ab["probe_ablation_is_exact"]:
+        lines.append(
+            f"Neither other rule in the policy family fires on any detected row "
+            f"({', '.join(f'{c}: {k}' for c, k in ab['other_policy_on_detected'].items())}), and "
+            "the family's sub-score is a max over the three rules, so subtracting the family "
+            "column removes exactly the balance-probe rule's contribution -- the ablation "
+            "above is exact, not an upper bound.")
+    else:
+        lines.append(
+            "Another rule in the policy family fires on some detected rows "
+            f"({', '.join(f'{c}: {k}' for c, k in ab['other_policy_on_detected'].items())}). "
+            "The family sub-score is a max over the three rules, so subtracting the family "
+            "column removes at least the balance-probe rule and possibly more: the probe row "
+            "of the ablation is an UPPER bound on its contribution, not an exact measure.")
+
+    if ab["drop_probe"] == eq["n_detected"] and ab["drop_spend"] < eq["n_detected"]:
+        lines.append(
+            f"\nRemoving the probe's points changes no decision: all {eq['n_detected']} rows "
+            f"still alert without it. Removing spend_baseline's leaves {ab['drop_spend']}. "
+            f"The probe is set-identical to the detections and decisive in none of them -- "
+            f"spend_baseline is what carries them across the threshold, saturated at "
+            f"{ab['spend_points_max_possible']:.1f} of "
+            f"{ab['spend_points_max_possible']:.1f} points on every detected row.")
+    lines.append(
+        f"Safe phrasing for the paper: all {eq['n_detected']} detected {_pat} rows carry "
+        f"{PROBE_REASON_CODE} and no missed row does -- but so does {SPEND_REASON_CODE}, and "
+        f"only the latter's points are load-bearing. Any wording where 'exactly the "
+        f"balance-probe rows' carries the weight of 'balance-probe caught them' is not "
+        f"supported by this run.")
+
+    lines.append("\n### 15e. Run-wide -- is the collinearity a property of the scorer?")
+    lines.append(
+        f"15a-15d are scoped to {_pat}. If {PROBE_REASON_CODE} implied {SPEND_REASON_CODE} "
+        "everywhere, the collinearity would be structural; if it holds only inside this "
+        "pattern, it is a property of how the pattern is generated. Measured across all "
+        f"{len(out):,} rows:")
+    lines.append(f"  {PROBE_REASON_CODE} fires {rw['n_probe_total']} times in total")
+    lines.append("    by pattern: "
+                  + ", ".join(f"{p} ({k})" for p, k in rw["by_pattern"]))
+    lines.append(f"    of those, {rw['n_probe_and_spend']} co-occur with {SPEND_REASON_CODE} "
+                  f"and {rw['n_probe_without_spend']} do not")
+    lines.append(f"    probe rows that alert: {rw['n_probe_alerted']} of {rw['n_probe_total']}")
+    lines.append(f"    probe-WITHOUT-spend_baseline rows that alert: "
+                  f"{rw['n_probe_without_spend_alerted']} of {rw['n_probe_without_spend']}")
+    lines.append(f"  collinear run-wide (every probe firing carries {SPEND_REASON_CODE}): "
+                  f"{rw['collinear_run_wide']}")
+    if not rw["collinear_run_wide"] and rw["n_probe_without_spend_alerted"] == 0:
+        lines.append(
+            f"The collinearity is NOT structural -- it holds inside {_pat}, not across the "
+            f"run. And the {rw['n_probe_without_spend']} rows where the probe fires without "
+            "spend_baseline alert zero times, which is the cleanest statement of the "
+            f"finding: at {max(ab['probe_points_on_detected']):.1f} points the balance-probe "
+            "rule cannot cross the "
+            f"{cfg['scoring']['thresholds']['allow_to_step_up']}-point alert threshold on its "
+            "own anywhere in this evaluation. It is never observed detecting anything alone.")
     lines.append("")
 
     return "\n".join(lines)
