@@ -25,7 +25,13 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from features import ROOT, load_config          # noqa: E402
 from scorer import score_transactions           # noqa: E402
-from evaluate import fp_victim_contamination, wilson_ci  # noqa: E402
+# cost_matrix is imported rather than reimplemented so the realistic-prevalence
+# C4 figures come off exactly the same code path as the primary's -- same
+# definitions of "caught", "missed", "wrongly blocked" and "alert", same
+# review-cost range read from the same config. A second implementation here
+# could drift from evaluate.py's and the two numbers would stop being
+# comparable without anything visibly breaking.
+from evaluate import cost_matrix, fp_victim_contamination, wilson_ci  # noqa: E402
 
 t0 = time.time()
 cfg = load_config()
@@ -95,6 +101,84 @@ for k, v in by_cat.items():
 A("")
 A("## Alert volume")
 A(f"Alerts per 1,000 transactions: {alerted.sum()/n*1000:.2f}")
+A("")
+
+# ---------------------------------------------------------------------------
+# Dollar cost matrix at realistic prevalence (C4)
+#
+# The primary run's C4 numbers sit at ~20x realistic prevalence, and the
+# savings-to-cost ratio is the metric most exposed to that: the numerator
+# scales with how much fraud there is to catch, while the denominator scales
+# with alert volume, which is dominated by false positives. Those two do not
+# move together when prevalence changes, so the primary's ratio cannot be
+# assumed to carry over -- it has to be recomputed on this dataset.
+#
+# The primary is recomputed here too, in the same process, off the same
+# function. Quoting the primary's ratio from outputs/evaluate_metrics.md and
+# printing the realistic one next to it would not be a like-for-like
+# comparison; both sides being computed in one run is the point.
+# ---------------------------------------------------------------------------
+A("## Dollar cost matrix and savings-to-cost ratio (C4) at realistic prevalence")
+cm_real = cost_matrix(out, cfg)
+A(f"Fraud value caught (decision != allow): ${cm_real['fraud_value_caught_usd']:,.2f}")
+A(f"Fraud value missed (decision == allow):  ${cm_real['fraud_value_missed_usd']:,.2f}")
+A(f"Legitimate value wrongly BLOCKED (decision == block, is_fraud=False): "
+  f"${cm_real['legit_value_wrongly_blocked_usd']:,.2f}")
+A(f"Total alerts (review-cost-consuming, decision != allow): {cm_real['n_alerts']:,}")
+A("")
+A("Savings-to-cost ratio = fraud value caught / total review cost, across the same "
+  "$6.40-$9.20 review-cost range as the primary (SPEC.md §4.4: run the full range, "
+  "not just the midpoint):")
+for row in cm_real["by_cost_level"]:
+    A(f"  {row['cost_level']:>4} (${row['review_cost_per_alert_usd']:.2f}/alert): "
+      f"total review cost=${row['total_review_cost_usd']:,.2f}   "
+      f"ratio={row['savings_to_cost_ratio']:.2f}:1")
+A("")
+
+# Same function, same config, primary dataset -- computed here rather than
+# quoted, so the two columns below are genuinely the same measurement.
+primary = pd.read_csv(ROOT / "data/ebt_scored.csv", parse_dates=["timestamp"])
+cm_prim = cost_matrix(primary, cfg)
+A("### Side by side with the primary run")
+A("Both columns computed in this process by the same `cost_matrix()` from "
+  "`evaluate.py`, not quoted from `outputs/evaluate_metrics.md`.")
+A("")
+A(f"| | primary ({len(primary):,} rows) | realistic ({n:,} rows) |")
+A("|---|---|---|")
+A(f"| transaction-level prevalence | "
+  f"{primary['is_fraud'].sum()/len(primary)*100:.4f}% | {prevalence*100:.4f}% |")
+A(f"| fraud value caught | ${cm_prim['fraud_value_caught_usd']:,.2f} | "
+  f"${cm_real['fraud_value_caught_usd']:,.2f} |")
+A(f"| fraud value missed | ${cm_prim['fraud_value_missed_usd']:,.2f} | "
+  f"${cm_real['fraud_value_missed_usd']:,.2f} |")
+A(f"| legitimate value wrongly blocked | "
+  f"${cm_prim['legit_value_wrongly_blocked_usd']:,.2f} | "
+  f"${cm_real['legit_value_wrongly_blocked_usd']:,.2f} |")
+A(f"| total alerts | {cm_prim['n_alerts']:,} | {cm_real['n_alerts']:,} |")
+for lv_p, lv_r in zip(cm_prim["by_cost_level"], cm_real["by_cost_level"]):
+    A(f"| ratio, {lv_p['cost_level']} (${lv_p['review_cost_per_alert_usd']:.2f}/alert) | "
+      f"{lv_p['savings_to_cost_ratio']:.2f}:1 | {lv_r['savings_to_cost_ratio']:.2f}:1 |")
+A("")
+
+# Both directions of the comparison are computed, so the sentence below states
+# what the data shows rather than what a lower-prevalence run is assumed to do.
+_r_lo = min(r["savings_to_cost_ratio"] for r in cm_real["by_cost_level"])
+_r_hi = max(r["savings_to_cost_ratio"] for r in cm_real["by_cost_level"])
+_p_lo = min(r["savings_to_cost_ratio"] for r in cm_prim["by_cost_level"])
+_p_hi = max(r["savings_to_cost_ratio"] for r in cm_prim["by_cost_level"])
+A(f"Measured ratio at realistic prevalence ranges {_r_lo:.2f}:1 to {_r_hi:.2f}:1, against "
+  f"{_p_lo:.2f}:1 to {_p_hi:.2f}:1 on the primary. The paper claims 20-80x (§4.4) / 4-5x "
+  f"(§6); the realistic-prevalence range {'falls below' if _r_hi < 4 else 'overlaps'} the "
+  "§6 claim and is far below the §4.4 one, and that is the figure to quote for a "
+  "real-world deployment rather than the primary's.")
+A("Why it moves in this direction: the numerator is the value of fraud actually caught, "
+  "which is bounded by how much fraud exists, while the denominator is review cost, which "
+  "scales with total alerts and is dominated by false positives. Dropping prevalence ~20x "
+  "removes very little from the numerator (a similar number of fraud episodes) but leaves "
+  "a large false-positive base in the denominator, so the ratio falls. A savings-to-cost "
+  "ratio measured at elevated prevalence therefore flatters the system, and the elevation "
+  "was chosen for statistical power, not to make this number look better -- which is "
+  "exactly why it has to be reported at realistic prevalence too.")
 A("")
 A("## Why precision differs -- the comparison is not prevalence alone")
 vc = fp_victim_contamination(out)

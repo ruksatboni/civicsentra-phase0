@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-29 02:55:13 UTC from data/ebt_scored.csv (137,080 rows).
+Generated 2026-07-29 03:09:00 UTC from data/ebt_scored.csv (137,080 rows).
 Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
