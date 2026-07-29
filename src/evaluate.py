@@ -70,8 +70,10 @@ FP_COMPOSITION_BASELINE = 20  # current allow_to_step_up; the anchor to measure 
 # 1 measures it at the configured operating point and section 12 measures the
 # ordinary-legitimate share at 26; multiplying the two would assume the victim
 # share is threshold-invariant, which is an assumption rather than a
-# measurement.
-VICTIM_SPLIT_THRESHOLD = 26
+# measurement. 30 is included because it is the tightest threshold section 12
+# examines -- a claim about "the tightest settings examined" has to be verified
+# at the tightest setting, not extrapolated to it from 26.
+VICTIM_SPLIT_THRESHOLDS = [26, 30]
 
 
 # ---------------------------------------------------------------------------
@@ -1244,52 +1246,75 @@ def build_report(out, cfg):
                 "by volume, not because any fraud becomes newly visible.")
     lines.append("")
 
-    # -- 14: victim contamination at threshold 26 ----------------------------
+    # -- 14: victim contamination across thresholds --------------------------
+    _vs_list = ", ".join(str(t) for t in VICTIM_SPLIT_THRESHOLDS)
     lines.append(f"## 14. Victim contamination of ordinary-legitimate false positives at "
-                  f"threshold {VICTIM_SPLIT_THRESHOLD}")
+                  f"thresholds {_vs_list}")
     lines.append(
         "Section 1 measures this split at the configured operating point (threshold "
         f"{FP_COMPOSITION_BASELINE}); section 12 measures the ordinary-legitimate SHARE of "
-        f"false positives at threshold {VICTIM_SPLIT_THRESHOLD}. Combining the two would "
-        "assume the victim share holds steady across that move, which is an assumption and "
-        "not a measurement. This measures it directly at "
-        f"{VICTIM_SPLIT_THRESHOLD}, using the same alert rule as sections 4 and 12 "
-        "(risk_score >= t OR the geo-velocity hard override).")
-    vc26 = fp_victim_contamination(out, _alerted_at(out, VICTIM_SPLIT_THRESHOLD))
+        "false positives at each raised threshold. Combining the two would assume the victim "
+        "share is threshold-invariant, which is an assumption and not a measurement. This "
+        f"measures it directly at {_vs_list}, using the same alert rule as sections 4 and 12 "
+        "(risk_score >= t OR the geo-velocity hard override). The tightest threshold in the "
+        "list is measured, not extrapolated to: a claim about behaviour at the tightest "
+        "settings examined cannot rest on a reading taken at a looser one.")
     lines.append(
         "The three populations below are properties of the data, not of the threshold -- "
-        "they are identical to section 1's. Only the flagged counts and rates move.")
-    for key, label in [("clean_household", "ordinary rows, household never defrauded"),
-                        ("victim_household_before_fraud", "ordinary rows, victim hh BEFORE fraud "),
-                        ("victim_household_after_fraud", "ordinary rows, victim hh AFTER fraud  ")]:
-        s = vc26[key]
-        lines.append(f"  {label}: n={s['n']:>7,}  flagged={s['flagged']:>5,}  "
-                      f"rate={s['rate']*100:6.3f}%")
-    share26 = vc26["share_of_ordinary_fp_after_fraud"]
-    lines.append(f"Share of ordinary-legitimate false positives falling after their own "
-                  f"household's fraud, at threshold {VICTIM_SPLIT_THRESHOLD}: "
-                  f"{share26*100:.2f}%")
-    vc20 = fp_victim_contamination(out)
-    share20 = vc20["share_of_ordinary_fp_after_fraud"]
-    lines.append(f"Same quantity at the configured threshold {FP_COMPOSITION_BASELINE} "
-                  f"(section 1's figure, recomputed here so both sit in one place): "
-                  f"{share20*100:.2f}%")
-    if share26 >= 1.0 - 1e-12:
+        "they are identical at every threshold, and to section 1's. Only the flagged counts "
+        "and rates move.")
+
+    _split_rows = [("clean_household", "ordinary rows, household never defrauded"),
+                   ("victim_household_before_fraud", "ordinary rows, victim hh BEFORE fraud "),
+                   ("victim_household_after_fraud", "ordinary rows, victim hh AFTER fraud  ")]
+    vc_baseline = fp_victim_contamination(out)  # section 1's figure, recomputed here
+    shares = {FP_COMPOSITION_BASELINE: vc_baseline["share_of_ordinary_fp_after_fraud"]}
+    clean_flagged = {FP_COMPOSITION_BASELINE: vc_baseline["clean_household"]["flagged"]}
+    for t in VICTIM_SPLIT_THRESHOLDS:
+        vc = fp_victim_contamination(out, _alerted_at(out, t))
+        shares[t] = vc["share_of_ordinary_fp_after_fraud"]
+        clean_flagged[t] = vc["clean_household"]["flagged"]
+        lines.append(f"\n### threshold {t}")
+        for key, label in _split_rows:
+            s = vc[key]
+            lines.append(f"  {label}: n={s['n']:>7,}  flagged={s['flagged']:>5,}  "
+                          f"rate={s['rate']*100:6.3f}%")
+        lines.append(f"  share of ordinary-legitimate false positives falling after their "
+                      f"own household's fraud: {shares[t]*100:.2f}%")
+
+    lines.append(f"\nSame quantity at the configured threshold {FP_COMPOSITION_BASELINE} "
+                  f"(section 1's figure, recomputed here so the series sits in one place): "
+                  f"{shares[FP_COMPOSITION_BASELINE]*100:.2f}%")
+    lines.append("  " + "  ->  ".join(f"threshold {t}: {shares[t]*100:.2f}%"
+                                       for t in [FP_COMPOSITION_BASELINE] + VICTIM_SPLIT_THRESHOLDS))
+
+    # The concluding sentence is assembled from the measured series. In
+    # particular "nothing else at all" is only ever printed for thresholds where
+    # the clean-household count is actually zero -- if a single false positive
+    # on a never-defrauded household survives at any of them, this says so
+    # instead.
+    _saturated = [t for t in VICTIM_SPLIT_THRESHOLDS if clean_flagged[t] == 0]
+    _not_saturated = [t for t in VICTIM_SPLIT_THRESHOLDS if clean_flagged[t] > 0]
+    if _saturated and not _not_saturated:
         lines.append(
-            f"The share does not merely hold across the move -- it rises to "
-            f"{share26*100:.2f}%. At threshold {VICTIM_SPLIT_THRESHOLD} every single "
-            "ordinary-legitimate false positive falls after its own household's fraud; the "
-            f"{vc20['clean_household']['flagged']} false positives on never-defrauded "
-            f"households present at threshold {FP_COMPOSITION_BASELINE} are all gone. The "
-            "claim is therefore stronger at the higher threshold than the combination would "
-            "have assumed, not weaker -- but it should be quoted as measured here rather "
-            "than carried over from section 1.")
+            f"The share does not merely hold as the threshold rises -- it saturates. At "
+            f"threshold{'s' if len(_saturated) > 1 else ''} "
+            + ", ".join(str(t) for t in _saturated)
+            + " every single ordinary-legitimate false positive falls after its own "
+            "household's fraud: not a predominance, exactly none on never-defrauded "
+            f"households, against {clean_flagged[FP_COMPOSITION_BASELINE]} such false "
+            f"positives at threshold {FP_COMPOSITION_BASELINE}. The 'at the tightest "
+            "settings examined they are nothing else at all' claim is therefore verified at "
+            f"the tightest threshold examined here ({max(VICTIM_SPLIT_THRESHOLDS)}), not "
+            "extrapolated to it.")
     else:
         lines.append(
-            f"The share moves from {share20*100:.2f}% at threshold "
-            f"{FP_COMPOSITION_BASELINE} to {share26*100:.2f}% at threshold "
-            f"{VICTIM_SPLIT_THRESHOLD}, so it does not hold steady across the move and the "
-            "two figures should not be combined.")
+            "The share does NOT saturate across this range: false positives on "
+            "never-defrauded households survive at threshold"
+            + ("s " if len(_not_saturated) > 1 else " ")
+            + ", ".join(f"{t} ({clean_flagged[t]} of them)" for t in _not_saturated)
+            + ". A claim that they are 'nothing else at all' at the tightest settings "
+            "examined is not supported at those thresholds and should be qualified.")
     lines.append(
         "Read with section 12: raising the threshold does not dilute the victim-contamination "
         "mechanism, it concentrates it. The false positives that survive a higher threshold "

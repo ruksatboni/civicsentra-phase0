@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-29 02:28:58 UTC from data/ebt_scored.csv (137,080 rows).
+Generated 2026-07-29 02:55:13 UTC from data/ebt_scored.csv (137,080 rows).
 Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
@@ -242,13 +242,23 @@ Both members of each pair are evaluated inside a single call on a single frame, 
   VERDICT: NEITHER threshold dominates. Threshold 26 catches +24 fraud rows and raises +293 false positives relative to 30 -- both differences run the same direction, which is the signature of a trade-off rather than a dominance relation.
   The two are nested: everything threshold 30 alerts on, threshold 26 also alerts on, and nothing is alerted at 30 that is missed at 26. So moving 26 -> 30 is pure removal -- it discards 293 false positives and 24 true positives together, and cannot add anything back. Precision rises because the removal is 92.4% false positives by volume, not because any fraud becomes newly visible.
 
-## 14. Victim contamination of ordinary-legitimate false positives at threshold 26
-Section 1 measures this split at the configured operating point (threshold 20); section 12 measures the ordinary-legitimate SHARE of false positives at threshold 26. Combining the two would assume the victim share holds steady across that move, which is an assumption and not a measurement. This measures it directly at 26, using the same alert rule as sections 4 and 12 (risk_score >= t OR the geo-velocity hard override).
-The three populations below are properties of the data, not of the threshold -- they are identical to section 1's. Only the flagged counts and rates move.
+## 14. Victim contamination of ordinary-legitimate false positives at thresholds 26, 30
+Section 1 measures this split at the configured operating point (threshold 20); section 12 measures the ordinary-legitimate SHARE of false positives at each raised threshold. Combining the two would assume the victim share is threshold-invariant, which is an assumption and not a measurement. This measures it directly at 26, 30, using the same alert rule as sections 4 and 12 (risk_score >= t OR the geo-velocity hard override). The tightest threshold in the list is measured, not extrapolated to: a claim about behaviour at the tightest settings examined cannot rest on a reading taken at a looser one.
+The three populations below are properties of the data, not of the threshold -- they are identical at every threshold, and to section 1's. Only the flagged counts and rates move.
+
+### threshold 26
   ordinary rows, household never defrauded: n=109,936  flagged=    0  rate= 0.000%
   ordinary rows, victim hh BEFORE fraud : n= 11,530  flagged=    0  rate= 0.000%
   ordinary rows, victim hh AFTER fraud  : n= 13,042  flagged=  427  rate= 3.274%
-Share of ordinary-legitimate false positives falling after their own household's fraud, at threshold 26: 100.00%
-Same quantity at the configured threshold 20 (section 1's figure, recomputed here so both sit in one place): 99.14%
-The share does not merely hold across the move -- it rises to 100.00%. At threshold 26 every single ordinary-legitimate false positive falls after its own household's fraud; the 16 false positives on never-defrauded households present at threshold 20 are all gone. The claim is therefore stronger at the higher threshold than the combination would have assumed, not weaker -- but it should be quoted as measured here rather than carried over from section 1.
+  share of ordinary-legitimate false positives falling after their own household's fraud: 100.00%
+
+### threshold 30
+  ordinary rows, household never defrauded: n=109,936  flagged=    0  rate= 0.000%
+  ordinary rows, victim hh BEFORE fraud : n= 11,530  flagged=    0  rate= 0.000%
+  ordinary rows, victim hh AFTER fraud  : n= 13,042  flagged=  141  rate= 1.081%
+  share of ordinary-legitimate false positives falling after their own household's fraud: 100.00%
+
+Same quantity at the configured threshold 20 (section 1's figure, recomputed here so the series sits in one place): 99.14%
+  threshold 20: 99.14%  ->  threshold 26: 100.00%  ->  threshold 30: 100.00%
+The share does not merely hold as the threshold rises -- it saturates. At thresholds 26, 30 every single ordinary-legitimate false positive falls after its own household's fraud: not a predominance, exactly none on never-defrauded households, against 16 such false positives at threshold 20. The 'at the tightest settings examined they are nothing else at all' claim is therefore verified at the tightest threshold examined here (30), not extrapolated to it.
 Read with section 12: raising the threshold does not dilute the victim-contamination mechanism, it concentrates it. The false positives that survive a higher threshold are more purely victims' own post-fraud transactions, not less.
