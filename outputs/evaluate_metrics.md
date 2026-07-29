@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-28 02:23:16 UTC from data/ebt_scored.csv (137,080 rows).
+Generated 2026-07-29 02:16:01 UTC from data/ebt_scored.csv (137,080 rows).
 Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
@@ -110,3 +110,121 @@ Paper claims 20-80x (§4.4) / 4-5x (§6), never 99x. Measured ratio here ranges 
   locality_class=rural: 464/35225 = 1.32%
   locality_class=suburban: 674/46119 = 1.46%
   locality_class=urban: 722/53164 = 1.36%
+
+## 11. TERMINAL_NEIGHBOUR_CLUSTER -- whole-run firing census
+The terminal_temporal_neighbour family carries 0.10 of the risk score (10.0 of 100 points at saturation) but is nearly invisible in the sections above: it appears in no per-pattern missed-reason list in section 5, and only a handful of times in section 1's false-positive reason codes. Those sections only surface it where it happens to accompany an alert or a miss, so neither answers whether it fires on fraud rows at all. This section counts every firing in the run.
+'Fires' = terminal_neighbour_subscore_points > 0, the same condition scorer.py uses to emit TERMINAL_NEIGHBOUR_CLUSTER. Points column and reason code agree on every row: True.
+
+Total firings across all 137,080 rows: 257
+  on FRAUD rows      :    12 of     547 = 2.19%  [95% CI 1.26%-3.80%]
+  on LEGITIMATE rows :   245 of 136,533 = 0.18%  [95% CI 0.16%-0.20%]
+
+Fraud side, by pattern (every pattern listed, including those with zero firings -- a zero is the finding here, and a counts-only table would omit it):
+  P2: fired on   0 of  78 rows (  0.00%); of those firings, 0 are on rows that alerted
+  P3: fired on   1 of  78 rows (  1.28%); of those firings, 1 are on rows that alerted
+  P4: fired on   0 of  77 rows (  0.00%); of those firings, 0 are on rows that alerted
+  P5: fired on   0 of  77 rows (  0.00%); of those firings, 0 are on rows that alerted
+  P6: fired on   0 of  82 rows (  0.00%); of those firings, 0 are on rows that alerted
+  P7: fired on   0 of  77 rows (  0.00%); of those firings, 0 are on rows that alerted
+  P8: fired on  11 of  78 rows ( 14.10%); of those firings, 4 are on rows that alerted
+
+Legitimate side, by category (same split as section 1's false-positive decomposition):
+  ordinary_legitimate: fired on   243 of 134,508 rows (0.18%)
+                   N1: fired on     0 of     339 rows (0.00%)
+                   N2: fired on     2 of   1,686 rows (0.12%)
+
+It DOES fire on fraud: 12 times, concentrated in P3 (1), P8 (11). The fraud-side firing rate (2.19%) is 12.2x the legitimate-side rate (0.18%), so the feature is not firing at random with respect to the label -- the correct statement is that it discriminates weakly but non-trivially, NOT that it has no supporting evidence in the evaluation.
+The two 95% intervals do not overlap (1.26%-3.80% against 0.16%-0.20%), so the enrichment is not an artefact of the small fraud population. It still rests on 12 fraud rows, which is the caveat that belongs next to the lift figure whenever it is quoted.
+
+Magnitude: the largest contribution this family makes anywhere in the run is 7.50 points of a possible 10.0; on fraud rows specifically it never exceeds 2.50 points.
+Counterfactual -- the run re-decided with this family's points subtracted from every score (allow/step_up/block recomputed by the same two-path rule scorer.py uses): 0 decisions change (0 on fraud rows, 0 on legitimate rows).
+Deleting the feature outright would leave every decision in this evaluation exactly as it stands. That is the finding section 9 should carry, and it is sharper than a firing count either way: the family fires, it fires preferentially on fraud, and it is still decisive nowhere -- its contribution is always too small to move a row across a threshold on its own, and it never arrives as the marginal point on a row sitting at the line. A weight of 0.10 is doing no work here, which is a statement about this dataset's terminal-sharing structure as much as about the feature.
+
+## 12. False-positive composition at thresholds 25, 26, 30
+Section 4's 10-point grid shows alerts collapsing and precision climbing between thresholds 20 and 30, but a 10-point grid cannot say WHAT clears out. This repeats the section 1 decomposition (ordinary-legitimate / N1 / N2) and the reason-code distribution at each of 25, 26, 30, with threshold 20 (the configured allow_to_step_up) included as the anchor the others are measured against.
+Why 26 specifically: a saturated spend_baseline sub-score contributes at most 25.0 points (weight 0.25 x 100), so 26 is the first integer threshold at which a SPEND_BASELINE_HIGH_DRAW firing with nothing alongside it cannot alert, whatever its sub-score. That is arithmetic; whether it is what actually clears is measured below.
+
+### threshold 20  (anchor -- current config)
+  alerts=2,330  TP=399  FP=1,931  precision=17.12%  recall=72.94%
+    ordinary_legitimate: 1,860 of 1,931 false positives (96.32%)
+                     N1:    55 of 1,931 false positives (2.85%)
+                     N2:    16 of 1,931 false positives (0.83%)
+  reason codes across those FPs: {'SPEND_BASELINE_HIGH_DRAW': 1931, 'TERMINAL_REPUTATION_ELEVATED': 761, 'HOME_LOCATION_OUT_OF_ZONE': 55, 'GEO_VELOCITY_ELEVATED_SPEED': 6, 'TERMINAL_NEIGHBOUR_CLUSTER': 4, 'GEO_IMPOSSIBLE_TRAVEL_HARD_BLOCK': 3, 'HOME_LOCATION_NIGHT_AMPLIFIED': 1, 'POLICY_BALANCE_PROBE_THEN_PURCHASE': 1, 'POLICY_ISSUANCE_DAY_FAST_DRAIN': 1}
+  whole reason-code sets (per-code totals above cannot separate 'fired alone' from 'fired alongside'):
+    1,120  SPEND_BASELINE_HIGH_DRAW
+      742  SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+       35  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW
+       18  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+        5  GEO_VELOCITY_ELEVATED_SPEED|SPEND_BASELINE_HIGH_DRAW
+        4  SPEND_BASELINE_HIGH_DRAW|TERMINAL_NEIGHBOUR_CLUSTER
+  SPEND_BASELINE_HIGH_DRAW as the ONLY code: 1,120 of 1,931 FPs (58.00%)
+
+### threshold 25
+  alerts=2,324  TP=393  FP=1,931  precision=16.91%  recall=71.85%
+    ordinary_legitimate: 1,860 of 1,931 false positives (96.32%)
+                     N1:    55 of 1,931 false positives (2.85%)
+                     N2:    16 of 1,931 false positives (0.83%)
+  reason codes across those FPs: {'SPEND_BASELINE_HIGH_DRAW': 1931, 'TERMINAL_REPUTATION_ELEVATED': 761, 'HOME_LOCATION_OUT_OF_ZONE': 55, 'GEO_VELOCITY_ELEVATED_SPEED': 6, 'TERMINAL_NEIGHBOUR_CLUSTER': 4, 'GEO_IMPOSSIBLE_TRAVEL_HARD_BLOCK': 3, 'HOME_LOCATION_NIGHT_AMPLIFIED': 1, 'POLICY_BALANCE_PROBE_THEN_PURCHASE': 1, 'POLICY_ISSUANCE_DAY_FAST_DRAIN': 1}
+  whole reason-code sets (per-code totals above cannot separate 'fired alone' from 'fired alongside'):
+    1,120  SPEND_BASELINE_HIGH_DRAW
+      742  SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+       35  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW
+       18  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+        5  GEO_VELOCITY_ELEVATED_SPEED|SPEND_BASELINE_HIGH_DRAW
+        4  SPEND_BASELINE_HIGH_DRAW|TERMINAL_NEIGHBOUR_CLUSTER
+  SPEND_BASELINE_HIGH_DRAW as the ONLY code: 1,120 of 1,931 FPs (58.00%)
+
+### threshold 26
+  alerts=748  TP=312  FP=436  precision=41.71%  recall=57.04%
+    ordinary_legitimate:   427 of 436 false positives (97.94%)
+                     N1:     7 of 436 false positives (1.61%)
+                     N2:     2 of 436 false positives (0.46%)
+  reason codes across those FPs: {'SPEND_BASELINE_HIGH_DRAW': 436, 'TERMINAL_REPUTATION_ELEVATED': 386, 'HOME_LOCATION_OUT_OF_ZONE': 55, 'GEO_VELOCITY_ELEVATED_SPEED': 6, 'TERMINAL_NEIGHBOUR_CLUSTER': 4, 'GEO_IMPOSSIBLE_TRAVEL_HARD_BLOCK': 3, 'HOME_LOCATION_NIGHT_AMPLIFIED': 1, 'POLICY_BALANCE_PROBE_THEN_PURCHASE': 1, 'POLICY_ISSUANCE_DAY_FAST_DRAIN': 1}
+  whole reason-code sets (per-code totals above cannot separate 'fired alone' from 'fired alongside'):
+      367  SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+       35  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW
+       18  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+        5  GEO_VELOCITY_ELEVATED_SPEED|SPEND_BASELINE_HIGH_DRAW
+        4  SPEND_BASELINE_HIGH_DRAW|TERMINAL_NEIGHBOUR_CLUSTER
+        2  GEO_IMPOSSIBLE_TRAVEL_HARD_BLOCK|SPEND_BASELINE_HIGH_DRAW
+  SPEND_BASELINE_HIGH_DRAW as the ONLY code: 0 of 436 FPs (0.00%)
+
+### threshold 30
+  alerts=431  TP=288  FP=143  precision=66.82%  recall=52.65%
+    ordinary_legitimate:   141 of 143 false positives (98.60%)
+                     N1:     2 of 143 false positives (1.40%)
+                     N2:     0 of 143 false positives (0.00%)
+  reason codes across those FPs: {'SPEND_BASELINE_HIGH_DRAW': 143, 'TERMINAL_REPUTATION_ELEVATED': 100, 'HOME_LOCATION_OUT_OF_ZONE': 55, 'GEO_VELOCITY_ELEVATED_SPEED': 4, 'GEO_IMPOSSIBLE_TRAVEL_HARD_BLOCK': 3, 'HOME_LOCATION_NIGHT_AMPLIFIED': 1, 'POLICY_ISSUANCE_DAY_FAST_DRAIN': 1}
+  whole reason-code sets (per-code totals above cannot separate 'fired alone' from 'fired alongside'):
+       81  SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+       35  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW
+       18  HOME_LOCATION_OUT_OF_ZONE|SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+        3  GEO_VELOCITY_ELEVATED_SPEED|SPEND_BASELINE_HIGH_DRAW
+        2  GEO_IMPOSSIBLE_TRAVEL_HARD_BLOCK|SPEND_BASELINE_HIGH_DRAW
+        1  HOME_LOCATION_OUT_OF_ZONE|HOME_LOCATION_NIGHT_AMPLIFIED|SPEND_BASELINE_HIGH_DRAW
+  SPEND_BASELINE_HIGH_DRAW as the ONLY code: 0 of 143 FPs (0.00%)
+
+### What clears between each pair of thresholds
+(False positives alerting at the lower threshold and not at the higher one, decomposed by their full reason-code set. Fraud lost over the same step is shown alongside, so no clearance reads as free.)
+
+  20 -> 25: 0 false positives clear, 6 fraud rows lost
+    (nothing clears over this step)
+
+  25 -> 26: 1,495 false positives clear, 81 fraud rows lost
+    risk_score range of the cleared FPs: 25.00 - 25.99
+    1,120  SPEND_BASELINE_HIGH_DRAW
+      375  SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+    single-feature SPEND_BASELINE among them: 1,120 (74.9%)
+    spend_baseline SATURATED at 25.0 points among them: 1,495 of 1,495; largest all-other-families contribution on any cleared row: 0.99 points
+
+  26 -> 30: 293 false positives clear, 24 fraud rows lost
+    risk_score range of the cleared FPs: 26.00 - 29.95
+      286  SPEND_BASELINE_HIGH_DRAW|TERMINAL_REPUTATION_ELEVATED
+        4  SPEND_BASELINE_HIGH_DRAW|TERMINAL_NEIGHBOUR_CLUSTER
+        2  GEO_VELOCITY_ELEVATED_SPEED|SPEND_BASELINE_HIGH_DRAW
+        1  SPEND_BASELINE_HIGH_DRAW|POLICY_BALANCE_PROBE_THEN_PURCHASE
+    single-feature SPEND_BASELINE among them: 0 (0.0%)
+    spend_baseline SATURATED at 25.0 points among them: 293 of 293; largest all-other-families contribution on any cleared row: 4.95 points
+
+Measured answer to 'is it single-feature SPEND_BASELINE that clears out': largely yes, but the precise statement is narrower. The 20 -> 25 step removes nothing at all -- no false positive in this run scores between 20 and 25, so the configured threshold of 20 and a threshold of 25 produce an identical false-positive set. Everything happens at 25 -> 26, where 1,495 false positives clear at once, 1,120 of them (74.9%) firing SPEND_BASELINE_HIGH_DRAW and nothing else, all sitting in a 25.00-25.99 score band.
+The remainder of that step is not a different mechanism, and the saturation line above is what shows it: all 1,495 cleared rows have spend_baseline saturated at 25.0 points, and no cleared row draws more than 0.99 points from all five other families combined. The rows carrying a second reason code are spend-baseline saturation plus a sub-point nudge -- single-feature firings in everything but the reason-code count. So the honest form of the claim is that the 20 -> 30 precision gain is bought almost entirely by excluding spend-baseline saturation, not by any broader improvement in discrimination -- and the price is visible above: 111 fraud rows lost across the same range.

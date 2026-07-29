@@ -42,6 +42,30 @@ FRAUD_PATTERNS = ["P2", "P3", "P4", "P5", "P6", "P7", "P8"]
 RECALL_TARGETS = [0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
 THRESHOLD_GRID = list(range(0, 101, 10))
 
+NEIGHBOUR_POINTS_COL = "terminal_neighbour_subscore_points"
+NEIGHBOUR_REASON_CODE = "TERMINAL_NEIGHBOUR_CLUSTER"
+
+# The six per-family point columns scorer.py publishes. Named here rather than
+# imported from scorer.py: evaluate.py reads only the published CSV.
+CONTRIBUTION_COLS_ALL = [
+    "geo_velocity_subscore_points",
+    "home_location_subscore_points",
+    "spend_baseline_subscore_points",
+    "terminal_reputation_subscore_points",
+    "terminal_neighbour_subscore_points",
+    "ebt_policy_rules_subscore_points",
+]
+
+# Section 12 zooms in on the interval where section 4's coarse 10-point grid
+# shows alerts collapsing (20 -> 30). 26 is in the list deliberately: it is the
+# first integer threshold above the largest score a saturated spend-baseline
+# sub-score can produce alone (weight 0.25 x 100 = 25.0 points), so it is the
+# exact point where single-feature SPEND_BASELINE firings become arithmetically
+# unable to alert. Whether that is what actually clears is measured below, not
+# assumed from the arithmetic.
+FP_COMPOSITION_THRESHOLDS = [25, 26, 30]
+FP_COMPOSITION_BASELINE = 20  # current allow_to_step_up; the anchor to measure against
+
 
 # ---------------------------------------------------------------------------
 # Small-n statistics
@@ -458,6 +482,215 @@ def fp_breakdown(out):
 
 
 # ---------------------------------------------------------------------------
+# TERMINAL_NEIGHBOUR_CLUSTER -- whole-run firing census
+#
+# Existing sections show this feature contributing nothing: it is absent from
+# every per-pattern missed-reason list in section 5, and it appears 4 times in
+# section 1's ordinary-legitimate false-positive reason codes. What none of
+# them answer is whether it ever fires on a fraud row anywhere in the run. A
+# weighted feature (terminal_temporal_neighbour, 0.10 of the score) with no
+# fraud-side firings at all would be a feature carrying weight on no evidence,
+# and section 9 of the paper has to say so if that is the case. This census
+# answers it by counting directly rather than inferring from the sections that
+# happen to surface reason codes.
+# ---------------------------------------------------------------------------
+
+def _decision_from_score(score, hard_override, cfg):
+    """allow / step_up / block from a score, mirroring scorer.compute_decision.
+
+    Reimplemented here rather than imported: evaluate.py deliberately reads
+    only the published CSV (see this file's docstring), and the counterfactual
+    below needs to re-derive decisions from a modified score. Kept to the same
+    two-path structure as scorer.py -- hard override blocks regardless of
+    score, so removing points can never un-block an override row.
+    """
+    t = cfg["scoring"]["thresholds"]
+    return pd.Series(
+        np.select(
+            [hard_override, score >= t["step_up_to_block"], score >= t["allow_to_step_up"]],
+            ["block", "block", "step_up"],
+            default="allow",
+        ),
+        index=score.index,
+    )
+
+
+def neighbour_cluster_census(out, cfg):
+    """Every TERMINAL_NEIGHBOUR_CLUSTER firing in the run, split fraud vs.
+    legitimate, with the fraud side broken down by pattern.
+
+    "Fires" = terminal_neighbour_subscore_points > 0, which is exactly the
+    condition scorer.py uses to emit the reason code (scorer.py
+    compute_reason_codes). Both are checked against each other here so the
+    count does not depend on which of the two is treated as authoritative.
+
+    Firing is not the same as mattering, so this also runs the counterfactual
+    that firing counts alone cannot answer: recompute every decision in the run
+    with this family's points subtracted, and count how many decisions change.
+    A feature can fire on fraud rows and still be decisive nowhere.
+    """
+    fired_pts = out[NEIGHBOUR_POINTS_COL] > 0
+    fired_code = out["reason_codes"].str.split("|").apply(lambda c: NEIGHBOUR_REASON_CODE in c)
+    is_fraud = out["is_fraud"]
+    alerted = out["decision"] != "allow"
+
+    fraud_fired = fired_pts & is_fraud
+    legit_fired = fired_pts & ~is_fraud
+
+    # Fraud side, per pattern. Every pattern in FRAUD_PATTERNS is listed even
+    # at zero -- "P6: 0 firings" is the finding, and a value_counts() dict
+    # would silently omit it.
+    by_pattern = []
+    for pattern in FRAUD_PATTERNS:
+        mask = out["fraud_pattern"] == pattern
+        n = int(mask.sum())
+        k = int((mask & fired_pts).sum())
+        by_pattern.append({
+            "pattern": pattern, "n": n, "fired": k,
+            "fire_rate": k / n if n else float("nan"),
+            "fired_and_alerted": int((mask & fired_pts & alerted).sum()),
+        })
+
+    # Legitimate side, same three categories section 1's fp_breakdown uses.
+    legit_cat = out["fraud_pattern"].where(out["fraud_pattern"].isin(["N1", "N2"]),
+                                            "ordinary_legitimate")
+    by_legit_category = []
+    for cat in ["ordinary_legitimate", "N1", "N2"]:
+        mask = (~is_fraud) & (legit_cat == cat)
+        n = int(mask.sum())
+        k = int((mask & fired_pts).sum())
+        by_legit_category.append({"category": cat, "n": n, "fired": k,
+                                  "fire_rate": k / n if n else float("nan")})
+
+    n_fraud, n_legit = int(is_fraud.sum()), int((~is_fraud).sum())
+    k_fraud, k_legit = int(fraud_fired.sum()), int(legit_fired.sum())
+    rate_fraud = k_fraud / n_fraud if n_fraud else float("nan")
+    rate_legit = k_legit / n_legit if n_legit else float("nan")
+
+    # Counterfactual: same run, this family's contribution removed.
+    hard_override = out["geo_hard_override"].astype(bool)
+    score_without = out["risk_score"] - out[NEIGHBOUR_POINTS_COL]
+    decision_without = _decision_from_score(score_without, hard_override, cfg)
+    changed = decision_without != out["decision"]
+
+    max_possible = cfg["scoring"]["weights"]["terminal_temporal_neighbour"] * 100
+    return {
+        "codes_agree_with_points": bool((fired_pts == fired_code).all()),
+        "n_fired_total": int(fired_pts.sum()),
+        "fraud": {"n": n_fraud, "fired": k_fraud, "rate": rate_fraud,
+                  "ci_95": wilson_ci(k_fraud, n_fraud)},
+        "legit": {"n": n_legit, "fired": k_legit, "rate": rate_legit,
+                  "ci_95": wilson_ci(k_legit, n_legit)},
+        "lift": rate_fraud / rate_legit if rate_legit else float("nan"),
+        "by_pattern": by_pattern,
+        "by_legit_category": by_legit_category,
+        "max_points_possible": max_possible,
+        "max_points_observed": float(out[NEIGHBOUR_POINTS_COL].max()),
+        "max_points_observed_on_fraud": (float(out.loc[fraud_fired, NEIGHBOUR_POINTS_COL].max())
+                                          if k_fraud else float("nan")),
+        "n_decisions_changed_if_removed": int(changed.sum()),
+        "n_fraud_decisions_changed_if_removed": int((changed & is_fraud).sum()),
+        "n_legit_decisions_changed_if_removed": int((changed & ~is_fraud).sum()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# False-positive composition at thresholds 25, 26 and 30
+#
+# Section 4's 10-point grid shows alerts falling 2,330 -> 431 and precision
+# rising 17.12% -> 66.82% between thresholds 20 and 30, but a 10-point grid
+# cannot say WHAT clears out. This repeats section 1's fp_breakdown
+# decomposition (ordinary-legitimate / N1 / N2) plus the reason-code
+# distribution at each of 25, 26 and 30, and -- the part that actually answers
+# the question -- decomposes the false positives that clear between each pair
+# of adjacent thresholds. Measured, not inferred from the score arithmetic.
+# ---------------------------------------------------------------------------
+
+def _alerted_at(out, t):
+    """Alert mask at threshold t. Identical rule to
+    threshold_sensitivity_table: score >= t OR the geo-velocity hard override,
+    which no threshold move can un-trigger."""
+    return (out["risk_score"] >= t) | out["geo_hard_override"].astype(bool)
+
+
+def _fp_profile(out, t):
+    alerted = _alerted_at(out, t)
+    is_fraud = out["is_fraud"]
+    fp = out[alerted & ~is_fraud]
+    n_fp = len(fp)
+    tp = int((alerted & is_fraud).sum())
+    fn = int((~alerted & is_fraud).sum())
+    category = fp["fraud_pattern"].where(fp["fraud_pattern"].isin(["N1", "N2"]),
+                                          "ordinary_legitimate")
+    by_category = [
+        {"category": cat,
+         "n": int((category == cat).sum()),
+         "pct_of_fp": float((category == cat).sum()) / n_fp * 100 if n_fp else float("nan")}
+        for cat in ["ordinary_legitimate", "N1", "N2"]
+    ]
+    codes = (fp["reason_codes"].str.split("|").explode().value_counts().to_dict()
+             if n_fp else {})
+    # Whole reason-code SETS, not just per-code totals. The per-code counts
+    # cannot distinguish "SPEND_BASELINE fired alone" from "SPEND_BASELINE
+    # fired alongside something else", which is the entire question here.
+    combos = fp["reason_codes"].value_counts() if n_fp else pd.Series(dtype=int)
+    solo = int((fp["reason_codes"] == "SPEND_BASELINE_HIGH_DRAW").sum()) if n_fp else 0
+    return {
+        "threshold": t,
+        "n_alerts": int(alerted.sum()),
+        "tp": tp,
+        "n_fp": n_fp,
+        "precision": tp / (tp + n_fp) if (tp + n_fp) else float("nan"),
+        "recall": tp / (tp + fn) if (tp + fn) else float("nan"),
+        "by_category": by_category,
+        "reason_codes": {k: int(v) for k, v in codes.items()},
+        "top_combos": [(k, int(v)) for k, v in combos.head(6).items()],
+        "n_solo_spend_baseline_fp": solo,
+        "pct_solo_spend_baseline_fp": solo / n_fp * 100 if n_fp else float("nan"),
+    }
+
+
+def fp_composition_at_thresholds(out, thresholds, baseline, cfg):
+    """Per-threshold FP profiles, plus the between-threshold clearance
+    decomposition that names what each step actually removes."""
+    grid = [baseline] + list(thresholds)
+    profiles = [_fp_profile(out, t) for t in grid]
+
+    # "Single-feature SPEND_BASELINE" by reason-code set alone undercounts the
+    # mechanism: a row can carry a second code contributing a fraction of a
+    # point and still be a spend-baseline firing in every meaningful sense.
+    # So the saturation itself is measured too, alongside the largest
+    # everything-else contribution among the cleared rows -- which is what
+    # decides whether the second code is doing any work.
+    spend_max = cfg["scoring"]["weights"]["spend_baseline"] * 100
+    other_cols = [c for c in CONTRIBUTION_COLS_ALL if c != "spend_baseline_subscore_points"]
+
+    cleared = []
+    for lo, hi in zip(grid, grid[1:]):
+        mask = _alerted_at(out, lo) & ~_alerted_at(out, hi) & ~out["is_fraud"]
+        gone = out[mask]
+        n = len(gone)
+        combos = gone["reason_codes"].value_counts() if n else pd.Series(dtype=int)
+        solo = int((gone["reason_codes"] == "SPEND_BASELINE_HIGH_DRAW").sum()) if n else 0
+        # Fraud lost over the same step, so the clearance is never read as
+        # free: precision does not rise for nothing.
+        fraud_lost = int((_alerted_at(out, lo) & ~_alerted_at(out, hi) & out["is_fraud"]).sum())
+        cleared.append({
+            "from": lo, "to": hi, "n_fp_cleared": n, "n_fraud_lost": fraud_lost,
+            "combos": [(k, int(v)) for k, v in combos.head(5).items()],
+            "n_solo_spend_baseline": solo,
+            "pct_solo_spend_baseline": solo / n * 100 if n else float("nan"),
+            "n_spend_saturated": (int((gone["spend_baseline_subscore_points"] >= spend_max - 1e-9).sum())
+                                   if n else 0),
+            "max_non_spend_points": (float(gone[other_cols].sum(axis=1).max())
+                                      if n else float("nan")),
+            "score_min": float(gone["risk_score"].min()) if n else float("nan"),
+            "score_max": float(gone["risk_score"].max()) if n else float("nan"),
+        })
+    return {"profiles": profiles, "cleared": cleared, "spend_max_points": spend_max}
+
+
+# ---------------------------------------------------------------------------
 # Report assembly
 # ---------------------------------------------------------------------------
 
@@ -699,6 +932,188 @@ def build_report(out, cfg):
         loc_mask = ordinary_mask & (out["locality_class"] == loc)
         loc_alerted = alerted[loc_mask]
         lines.append("  " + fmt_rate(rate_stat(loc_alerted, f"locality_class={loc}")))
+    lines.append("")
+
+    # -- 11: TERMINAL_NEIGHBOUR_CLUSTER firing census ------------------------
+    lines.append("## 11. TERMINAL_NEIGHBOUR_CLUSTER -- whole-run firing census")
+    nc = neighbour_cluster_census(out, cfg)
+    lines.append(
+        "The terminal_temporal_neighbour family carries "
+        f"{cfg['scoring']['weights']['terminal_temporal_neighbour']:.2f} of the risk score "
+        f"({nc['max_points_possible']:.1f} of 100 points at saturation) but is nearly "
+        "invisible in the sections above: it appears in no per-pattern missed-reason list "
+        "in section 5, and only a handful of times in section 1's false-positive reason "
+        "codes. Those sections only surface it where it happens to accompany an alert or a "
+        "miss, so neither answers whether it fires on fraud rows at all. This section "
+        "counts every firing in the run.")
+    lines.append(
+        f"'Fires' = {NEIGHBOUR_POINTS_COL} > 0, the same condition scorer.py uses to emit "
+        f"{NEIGHBOUR_REASON_CODE}. Points column and reason code agree on every row: "
+        f"{nc['codes_agree_with_points']}.")
+    lines.append(f"\nTotal firings across all {len(out):,} rows: {nc['n_fired_total']:,}")
+
+    fr, lg = nc["fraud"], nc["legit"]
+    lines.append(f"  on FRAUD rows      : {fr['fired']:>5,} of {fr['n']:>7,} "
+                  f"= {fr['rate']*100:.2f}%  [95% CI {fr['ci_95'][0]*100:.2f}%"
+                  f"-{fr['ci_95'][1]*100:.2f}%]")
+    lines.append(f"  on LEGITIMATE rows : {lg['fired']:>5,} of {lg['n']:>7,} "
+                  f"= {lg['rate']*100:.2f}%  [95% CI {lg['ci_95'][0]*100:.2f}%"
+                  f"-{lg['ci_95'][1]*100:.2f}%]")
+
+    lines.append("\nFraud side, by pattern (every pattern listed, including those with zero "
+                  "firings -- a zero is the finding here, and a counts-only table would "
+                  "omit it):")
+    for row in nc["by_pattern"]:
+        rate = f"{row['fire_rate']*100:6.2f}%" if row["n"] else "     --"
+        lines.append(f"  {row['pattern']}: fired on {row['fired']:>3} of {row['n']:>3} rows "
+                      f"({rate}); of those firings, {row['fired_and_alerted']} are on rows "
+                      "that alerted")
+    lines.append("\nLegitimate side, by category (same split as section 1's "
+                  "false-positive decomposition):")
+    for row in nc["by_legit_category"]:
+        lines.append(f"  {row['category']:>19}: fired on {row['fired']:>5,} of "
+                      f"{row['n']:>7,} rows ({row['fire_rate']*100:.2f}%)")
+
+    # The headline answer is interpolated from the census, not typed: if the
+    # data changes so that this feature stops firing on fraud entirely, this
+    # sentence has to change with it rather than keep asserting a stale count.
+    if fr["fired"] == 0:
+        lines.append(
+            f"\nIt fires on NO fraud row anywhere in the run ({fr['fired']}/{fr['n']}), "
+            f"while firing {lg['fired']:,} times on legitimate rows. On this dataset the "
+            f"{nc['max_points_possible']:.1f}-point weight this family carries is supported "
+            "by no fraud-side evidence at all, and that has to be stated in the paper as a "
+            "weight assigned on prior belief rather than on measured discrimination.")
+    else:
+        lines.append(
+            f"\nIt DOES fire on fraud: {fr['fired']} times, concentrated in "
+            + ", ".join(f"{r['pattern']} ({r['fired']})" for r in nc["by_pattern"] if r["fired"])
+            + f". The fraud-side firing rate ({fr['rate']*100:.2f}%) is "
+            f"{nc['lift']:.1f}x the legitimate-side rate ({lg['rate']*100:.2f}%), so the "
+            "feature is not firing at random with respect to the label -- the correct "
+            "statement is that it discriminates weakly but non-trivially, NOT that it has "
+            "no supporting evidence in the evaluation.")
+    _overlap = not (fr["ci_95"][0] > lg["ci_95"][1] or lg["ci_95"][0] > fr["ci_95"][1])
+    lines.append(
+        f"The two 95% intervals {'overlap' if _overlap else 'do not overlap'}"
+        + ("" if _overlap else
+           f" ({fr['ci_95'][0]*100:.2f}%-{fr['ci_95'][1]*100:.2f}% against "
+           f"{lg['ci_95'][0]*100:.2f}%-{lg['ci_95'][1]*100:.2f}%), so the enrichment is not "
+           "an artefact of the small fraud population")
+        + f". It still rests on {fr['fired']} fraud rows, which is the caveat that belongs "
+        "next to the lift figure whenever it is quoted.")
+
+    lines.append(
+        f"\nMagnitude: the largest contribution this family makes anywhere in the run is "
+        f"{nc['max_points_observed']:.2f} points of a possible {nc['max_points_possible']:.1f}"
+        + (f"; on fraud rows specifically it never exceeds "
+           f"{nc['max_points_observed_on_fraud']:.2f} points."
+           if fr["fired"] else "; it never contributes to a fraud row at all."))
+    lines.append(
+        "Counterfactual -- the run re-decided with this family's points subtracted from "
+        "every score (allow/step_up/block recomputed by the same two-path rule scorer.py "
+        f"uses): {nc['n_decisions_changed_if_removed']} decisions change "
+        f"({nc['n_fraud_decisions_changed_if_removed']} on fraud rows, "
+        f"{nc['n_legit_decisions_changed_if_removed']} on legitimate rows).")
+    if nc["n_decisions_changed_if_removed"] == 0:
+        lines.append(
+            "Deleting the feature outright would leave every decision in this evaluation "
+            "exactly as it stands. That is the finding section 9 should carry, and it is "
+            "sharper than a firing count either way: the family fires, it fires "
+            "preferentially on fraud, and it is still decisive nowhere -- its contribution "
+            "is always too small to move a row across a threshold on its own, and it never "
+            "arrives as the marginal point on a row sitting at the line. A weight of "
+            f"{cfg['scoring']['weights']['terminal_temporal_neighbour']:.2f} is doing no "
+            "work here, which is a statement about this dataset's terminal-sharing "
+            "structure as much as about the feature.")
+    lines.append("")
+
+    # -- 12: FP composition at thresholds 25, 26, 30 -------------------------
+    lines.append("## 12. False-positive composition at thresholds "
+                  + ", ".join(str(t) for t in FP_COMPOSITION_THRESHOLDS))
+    fpc = fp_composition_at_thresholds(out, FP_COMPOSITION_THRESHOLDS,
+                                        FP_COMPOSITION_BASELINE, cfg)
+    weights = cfg["scoring"]["weights"]
+    lines.append(
+        "Section 4's 10-point grid shows alerts collapsing and precision climbing between "
+        "thresholds 20 and 30, but a 10-point grid cannot say WHAT clears out. This repeats "
+        "the section 1 decomposition (ordinary-legitimate / N1 / N2) and the reason-code "
+        f"distribution at each of {', '.join(str(t) for t in FP_COMPOSITION_THRESHOLDS)}, "
+        f"with threshold {FP_COMPOSITION_BASELINE} (the configured allow_to_step_up) "
+        "included as the anchor the others are measured against.")
+    lines.append(
+        f"Why 26 specifically: a saturated spend_baseline sub-score contributes at most "
+        f"{weights['spend_baseline']*100:.0f}.0 points "
+        f"(weight {weights['spend_baseline']:.2f} x 100), so 26 is the first integer "
+        "threshold at which a SPEND_BASELINE_HIGH_DRAW firing with nothing alongside it "
+        "cannot alert, whatever its sub-score. That is arithmetic; whether it is what "
+        "actually clears is measured below.")
+
+    for p in fpc["profiles"]:
+        anchor = "  (anchor -- current config)" if p["threshold"] == FP_COMPOSITION_BASELINE else ""
+        lines.append(f"\n### threshold {p['threshold']}{anchor}")
+        lines.append(f"  alerts={p['n_alerts']:,}  TP={p['tp']:,}  FP={p['n_fp']:,}  "
+                      f"precision={p['precision']*100:.2f}%  recall={p['recall']*100:.2f}%")
+        for row in p["by_category"]:
+            lines.append(f"    {row['category']:>19}: {row['n']:>5,} of {p['n_fp']:,} "
+                          f"false positives ({row['pct_of_fp']:.2f}%)")
+        lines.append(f"  reason codes across those FPs: {p['reason_codes']}")
+        lines.append("  whole reason-code sets (per-code totals above cannot separate "
+                      "'fired alone' from 'fired alongside'):")
+        for combo, n in p["top_combos"]:
+            lines.append(f"    {n:>5,}  {combo}")
+        lines.append(f"  SPEND_BASELINE_HIGH_DRAW as the ONLY code: "
+                      f"{p['n_solo_spend_baseline_fp']:,} of {p['n_fp']:,} FPs "
+                      f"({p['pct_solo_spend_baseline_fp']:.2f}%)")
+
+    lines.append("\n### What clears between each pair of thresholds")
+    lines.append("(False positives alerting at the lower threshold and not at the higher "
+                  "one, decomposed by their full reason-code set. Fraud lost over the same "
+                  "step is shown alongside, so no clearance reads as free.)")
+    for c in fpc["cleared"]:
+        lines.append(f"\n  {c['from']} -> {c['to']}: {c['n_fp_cleared']:,} false positives "
+                      f"clear, {c['n_fraud_lost']} fraud rows lost")
+        if c["n_fp_cleared"] == 0:
+            lines.append("    (nothing clears over this step)")
+            continue
+        lines.append(f"    risk_score range of the cleared FPs: "
+                      f"{c['score_min']:.2f} - {c['score_max']:.2f}")
+        for combo, n in c["combos"]:
+            lines.append(f"    {n:>5,}  {combo}")
+        lines.append(f"    single-feature SPEND_BASELINE among them: "
+                      f"{c['n_solo_spend_baseline']:,} ({c['pct_solo_spend_baseline']:.1f}%)")
+        lines.append(f"    spend_baseline SATURATED at {fpc['spend_max_points']:.1f} points "
+                      f"among them: {c['n_spend_saturated']:,} of {c['n_fp_cleared']:,}; "
+                      f"largest all-other-families contribution on any cleared row: "
+                      f"{c['max_non_spend_points']:.2f} points")
+
+    # The interpretive sentence is built from the measured 25->26 step rather
+    # than typed, for the same reason as elsewhere in this file.
+    step = next((c for c in fpc["cleared"] if c["from"] == 25 and c["to"] == 26), None)
+    if step and step["n_fp_cleared"]:
+        lines.append(
+            f"\nMeasured answer to 'is it single-feature SPEND_BASELINE that clears out': "
+            f"largely yes, but the precise statement is narrower. The 20 -> 25 step removes "
+            "nothing at all -- no false positive in this run scores between 20 and 25, so "
+            "the configured threshold of 20 and a threshold of 25 produce an identical "
+            f"false-positive set. Everything happens at 25 -> 26, where {step['n_fp_cleared']:,} "
+            f"false positives clear at once, {step['n_solo_spend_baseline']:,} of them "
+            f"({step['pct_solo_spend_baseline']:.1f}%) firing SPEND_BASELINE_HIGH_DRAW and "
+            f"nothing else, all sitting in a {step['score_min']:.2f}-{step['score_max']:.2f} "
+            "score band.")
+        lines.append(
+            "The remainder of that step is not a different mechanism, and the saturation "
+            f"line above is what shows it: all {step['n_spend_saturated']:,} cleared rows "
+            f"have spend_baseline saturated at {fpc['spend_max_points']:.1f} points, and no "
+            "cleared row draws more than "
+            f"{step['max_non_spend_points']:.2f} points from all five other families "
+            "combined. The rows carrying a second reason code are spend-baseline "
+            "saturation plus a sub-point nudge -- single-feature firings in everything but "
+            "the reason-code count. So the honest form of the claim is that the 20 -> 30 "
+            "precision gain is bought almost entirely by excluding spend-baseline "
+            "saturation, not by any broader improvement in discrimination -- and the price "
+            f"is visible above: {sum(c['n_fraud_lost'] for c in fpc['cleared'])} fraud rows "
+            "lost across the same range.")
     lines.append("")
 
     return "\n".join(lines)
