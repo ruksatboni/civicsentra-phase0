@@ -66,6 +66,13 @@ CONTRIBUTION_COLS_ALL = [
 FP_COMPOSITION_THRESHOLDS = [25, 26, 30]
 FP_COMPOSITION_BASELINE = 20  # current allow_to_step_up; the anchor to measure against
 
+# Section 14 re-runs section 1's victim/non-victim decomposition here. Section
+# 1 measures it at the configured operating point and section 12 measures the
+# ordinary-legitimate share at 26; multiplying the two would assume the victim
+# share is threshold-invariant, which is an assumption rather than a
+# measurement.
+VICTIM_SPLIT_THRESHOLD = 26
+
 
 # ---------------------------------------------------------------------------
 # Small-n statistics
@@ -203,8 +210,15 @@ def alerts_per_1000_at_recall(out, targets):
     return rows
 
 
-def fp_victim_contamination(out):
+def fp_victim_contamination(out, alerted=None):
     """Where do the ordinary-legitimate false positives actually come from?
+
+    `alerted` defaults to the configured operating point (decision != allow),
+    which is what section 1 reports. Section 14 passes a threshold-derived mask
+    instead, so the same decomposition can be run at a threshold the scorer was
+    not configured with. The population splits (clean / victim-before /
+    victim-after) do not depend on the mask at all -- only the flagged counts
+    and rates do.
 
     Measured 2026-07-27, and it overturned the earlier reading of this
     number. The false positives are not spread across ordinary shoppers
@@ -220,7 +234,8 @@ def fp_victim_contamination(out):
     larger in volume.
     """
     ordinary = (~out["is_fraud"]) & out["fraud_pattern"].isna()
-    alerted = out["decision"] != "allow"
+    if alerted is None:
+        alerted = out["decision"] != "allow"
     ts = pd.to_datetime(out["timestamp"])
     first_fraud = ts[out["is_fraud"]].groupby(out.loc[out["is_fraud"], "household_id"]).min()
 
@@ -691,6 +706,66 @@ def fp_composition_at_thresholds(out, thresholds, baseline, cfg):
 
 
 # ---------------------------------------------------------------------------
+# Threshold pair comparison -- does one threshold dominate another?
+#
+# Comparing a freshly computed result at one threshold against a number quoted
+# from a table computed elsewhere is not a like-for-like comparison: the two can
+# drift apart silently. This evaluates both members of each pair inside one
+# call, on one frame, and computes the dominance verdict rather than asserting
+# it. Dominance has a definition and the answer is whatever the data says:
+# threshold A dominates B iff A catches at least as much fraud AND raises at
+# most as many false positives, with at least one of those strict. A threshold
+# that catches more fraud at the cost of more false positives does not dominate
+# -- it trades.
+# ---------------------------------------------------------------------------
+
+THRESHOLD_PAIRS = [(26, 30)]
+
+
+def threshold_pair_comparison(out, pairs):
+    is_fraud = out["is_fraud"]
+    results = []
+    for a, b in pairs:
+        al_a, al_b = _alerted_at(out, a), _alerted_at(out, b)
+
+        def side(mask):
+            tp = int((mask & is_fraud).sum())
+            fp = int((mask & ~is_fraud).sum())
+            fn = int((~mask & is_fraud).sum())
+            return {"tp": tp, "fp": fp, "n_alerts": int(mask.sum()),
+                    "precision": tp / (tp + fp) if (tp + fp) else float("nan"),
+                    "recall": tp / (tp + fn) if (tp + fn) else float("nan")}
+
+        sa, sb = side(al_a), side(al_b)
+        # Set relationship, not just the totals: if one alert set is a strict
+        # subset of the other, every difference between them is a removal and
+        # there is nothing the higher threshold catches that the lower misses.
+        only_a_tp = int((al_a & ~al_b & is_fraud).sum())
+        only_b_tp = int((al_b & ~al_a & is_fraud).sum())
+        only_a_fp = int((al_a & ~al_b & ~is_fraud).sum())
+        only_b_fp = int((al_b & ~al_a & ~is_fraud).sum())
+        b_subset_of_a = int((al_b & ~al_a).sum()) == 0
+
+        def dominates(x, y):
+            return (x["tp"] >= y["tp"] and x["fp"] <= y["fp"]
+                    and (x["tp"] > y["tp"] or x["fp"] < y["fp"]))
+
+        results.append({
+            "a": a, "b": b, "side_a": sa, "side_b": sb,
+            "same_tp": sa["tp"] == sb["tp"],
+            "same_recall": abs(sa["recall"] - sb["recall"]) < 1e-12,
+            "fp_difference": sa["fp"] - sb["fp"],
+            "tp_difference": sa["tp"] - sb["tp"],
+            "only_a_tp": only_a_tp, "only_b_tp": only_b_tp,
+            "only_a_fp": only_a_fp, "only_b_fp": only_b_fp,
+            "b_subset_of_a": b_subset_of_a,
+            "a_dominates_b": dominates(sa, sb),
+            "b_dominates_a": dominates(sb, sa),
+        })
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Report assembly
 # ---------------------------------------------------------------------------
 
@@ -1114,6 +1189,111 @@ def build_report(out, cfg):
             "saturation, not by any broader improvement in discrimination -- and the price "
             f"is visible above: {sum(c['n_fraud_lost'] for c in fpc['cleared'])} fraud rows "
             "lost across the same range.")
+    lines.append("")
+
+    # -- 13: threshold pair comparison ---------------------------------------
+    lines.append("## 13. Threshold pair comparison -- is one threshold dominant?")
+    lines.append(
+        "Both members of each pair are evaluated inside a single call on a single frame, so "
+        "the comparison is like-for-like by construction rather than by assembling a fresh "
+        "result at one threshold next to a number quoted from a table computed elsewhere. "
+        "Dominance is computed, not asserted: threshold A dominates B only if A catches at "
+        "least as much fraud AND raises at most as many false positives, one of them "
+        "strictly. Catching more fraud at the cost of more false positives is a trade, not "
+        "dominance.")
+    for r in threshold_pair_comparison(out, THRESHOLD_PAIRS):
+        a, b, sa, sb = r["a"], r["b"], r["side_a"], r["side_b"]
+        lines.append(f"\n### threshold {a} vs threshold {b}")
+        lines.append(f"  threshold {a}: alerts={sa['n_alerts']:>5,}  TP={sa['tp']:>3}  "
+                      f"FP={sa['fp']:>4}  precision={sa['precision']*100:.2f}%  "
+                      f"recall={sa['recall']*100:.2f}%")
+        lines.append(f"  threshold {b}: alerts={sb['n_alerts']:>5,}  TP={sb['tp']:>3}  "
+                      f"FP={sb['fp']:>4}  precision={sb['precision']*100:.2f}%  "
+                      f"recall={sb['recall']*100:.2f}%")
+        lines.append(f"  same true positives? {r['same_tp']}   "
+                      f"same recall? {r['same_recall']}   "
+                      f"TP difference ({a} minus {b}): {r['tp_difference']:+d}   "
+                      f"FP difference ({a} minus {b}): {r['fp_difference']:+d}")
+        lines.append(f"  alerted at {a} but not {b}: {r['only_a_tp']} fraud, "
+                      f"{r['only_a_fp']} legitimate")
+        lines.append(f"  alerted at {b} but not {a}: {r['only_b_tp']} fraud, "
+                      f"{r['only_b_fp']} legitimate")
+        lines.append(f"  is the threshold-{b} alert set a strict subset of threshold {a}'s? "
+                      f"{r['b_subset_of_a']}")
+        # The verdict sentence is assembled from the computed booleans. A typed
+        # conclusion here would survive the data changing underneath it, which
+        # is precisely the failure this file is written to avoid.
+        if r["a_dominates_b"]:
+            lines.append(f"  VERDICT: threshold {a} dominates threshold {b} on this run.")
+        elif r["b_dominates_a"]:
+            lines.append(f"  VERDICT: threshold {b} dominates threshold {a} on this run.")
+        else:
+            lines.append(
+                f"  VERDICT: NEITHER threshold dominates. Threshold {a} catches "
+                f"{r['tp_difference']:+d} fraud rows and raises {r['fp_difference']:+d} false "
+                f"positives relative to {b} -- both differences run the same direction, which "
+                "is the signature of a trade-off rather than a dominance relation.")
+        if r["b_subset_of_a"] and not r["a_dominates_b"] and not r["b_dominates_a"]:
+            lines.append(
+                f"  The two are nested: everything threshold {b} alerts on, threshold {a} "
+                f"also alerts on, and nothing is alerted at {b} that is missed at {a}. So "
+                f"moving {a} -> {b} is pure removal -- it discards {r['only_a_fp']} false "
+                f"positives and {r['only_a_tp']} true positives together, and cannot add "
+                "anything back. Precision rises because the removal is "
+                f"{r['only_a_fp']/(r['only_a_fp']+r['only_a_tp'])*100:.1f}% false positives "
+                "by volume, not because any fraud becomes newly visible.")
+    lines.append("")
+
+    # -- 14: victim contamination at threshold 26 ----------------------------
+    lines.append(f"## 14. Victim contamination of ordinary-legitimate false positives at "
+                  f"threshold {VICTIM_SPLIT_THRESHOLD}")
+    lines.append(
+        "Section 1 measures this split at the configured operating point (threshold "
+        f"{FP_COMPOSITION_BASELINE}); section 12 measures the ordinary-legitimate SHARE of "
+        f"false positives at threshold {VICTIM_SPLIT_THRESHOLD}. Combining the two would "
+        "assume the victim share holds steady across that move, which is an assumption and "
+        "not a measurement. This measures it directly at "
+        f"{VICTIM_SPLIT_THRESHOLD}, using the same alert rule as sections 4 and 12 "
+        "(risk_score >= t OR the geo-velocity hard override).")
+    vc26 = fp_victim_contamination(out, _alerted_at(out, VICTIM_SPLIT_THRESHOLD))
+    lines.append(
+        "The three populations below are properties of the data, not of the threshold -- "
+        "they are identical to section 1's. Only the flagged counts and rates move.")
+    for key, label in [("clean_household", "ordinary rows, household never defrauded"),
+                        ("victim_household_before_fraud", "ordinary rows, victim hh BEFORE fraud "),
+                        ("victim_household_after_fraud", "ordinary rows, victim hh AFTER fraud  ")]:
+        s = vc26[key]
+        lines.append(f"  {label}: n={s['n']:>7,}  flagged={s['flagged']:>5,}  "
+                      f"rate={s['rate']*100:6.3f}%")
+    share26 = vc26["share_of_ordinary_fp_after_fraud"]
+    lines.append(f"Share of ordinary-legitimate false positives falling after their own "
+                  f"household's fraud, at threshold {VICTIM_SPLIT_THRESHOLD}: "
+                  f"{share26*100:.2f}%")
+    vc20 = fp_victim_contamination(out)
+    share20 = vc20["share_of_ordinary_fp_after_fraud"]
+    lines.append(f"Same quantity at the configured threshold {FP_COMPOSITION_BASELINE} "
+                  f"(section 1's figure, recomputed here so both sit in one place): "
+                  f"{share20*100:.2f}%")
+    if share26 >= 1.0 - 1e-12:
+        lines.append(
+            f"The share does not merely hold across the move -- it rises to "
+            f"{share26*100:.2f}%. At threshold {VICTIM_SPLIT_THRESHOLD} every single "
+            "ordinary-legitimate false positive falls after its own household's fraud; the "
+            f"{vc20['clean_household']['flagged']} false positives on never-defrauded "
+            f"households present at threshold {FP_COMPOSITION_BASELINE} are all gone. The "
+            "claim is therefore stronger at the higher threshold than the combination would "
+            "have assumed, not weaker -- but it should be quoted as measured here rather "
+            "than carried over from section 1.")
+    else:
+        lines.append(
+            f"The share moves from {share20*100:.2f}% at threshold "
+            f"{FP_COMPOSITION_BASELINE} to {share26*100:.2f}% at threshold "
+            f"{VICTIM_SPLIT_THRESHOLD}, so it does not hold steady across the move and the "
+            "two figures should not be combined.")
+    lines.append(
+        "Read with section 12: raising the threshold does not dilute the victim-contamination "
+        "mechanism, it concentrates it. The false positives that survive a higher threshold "
+        "are more purely victims' own post-fraud transactions, not less.")
     lines.append("")
 
     return "\n".join(lines)

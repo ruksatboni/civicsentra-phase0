@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-29 02:16:01 UTC from data/ebt_scored.csv (137,080 rows).
+Generated 2026-07-29 02:28:58 UTC from data/ebt_scored.csv (137,080 rows).
 Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
@@ -228,3 +228,27 @@ Why 26 specifically: a saturated spend_baseline sub-score contributes at most 25
 
 Measured answer to 'is it single-feature SPEND_BASELINE that clears out': largely yes, but the precise statement is narrower. The 20 -> 25 step removes nothing at all -- no false positive in this run scores between 20 and 25, so the configured threshold of 20 and a threshold of 25 produce an identical false-positive set. Everything happens at 25 -> 26, where 1,495 false positives clear at once, 1,120 of them (74.9%) firing SPEND_BASELINE_HIGH_DRAW and nothing else, all sitting in a 25.00-25.99 score band.
 The remainder of that step is not a different mechanism, and the saturation line above is what shows it: all 1,495 cleared rows have spend_baseline saturated at 25.0 points, and no cleared row draws more than 0.99 points from all five other families combined. The rows carrying a second reason code are spend-baseline saturation plus a sub-point nudge -- single-feature firings in everything but the reason-code count. So the honest form of the claim is that the 20 -> 30 precision gain is bought almost entirely by excluding spend-baseline saturation, not by any broader improvement in discrimination -- and the price is visible above: 111 fraud rows lost across the same range.
+
+## 13. Threshold pair comparison -- is one threshold dominant?
+Both members of each pair are evaluated inside a single call on a single frame, so the comparison is like-for-like by construction rather than by assembling a fresh result at one threshold next to a number quoted from a table computed elsewhere. Dominance is computed, not asserted: threshold A dominates B only if A catches at least as much fraud AND raises at most as many false positives, one of them strictly. Catching more fraud at the cost of more false positives is a trade, not dominance.
+
+### threshold 26 vs threshold 30
+  threshold 26: alerts=  748  TP=312  FP= 436  precision=41.71%  recall=57.04%
+  threshold 30: alerts=  431  TP=288  FP= 143  precision=66.82%  recall=52.65%
+  same true positives? False   same recall? False   TP difference (26 minus 30): +24   FP difference (26 minus 30): +293
+  alerted at 26 but not 30: 24 fraud, 293 legitimate
+  alerted at 30 but not 26: 0 fraud, 0 legitimate
+  is the threshold-30 alert set a strict subset of threshold 26's? True
+  VERDICT: NEITHER threshold dominates. Threshold 26 catches +24 fraud rows and raises +293 false positives relative to 30 -- both differences run the same direction, which is the signature of a trade-off rather than a dominance relation.
+  The two are nested: everything threshold 30 alerts on, threshold 26 also alerts on, and nothing is alerted at 30 that is missed at 26. So moving 26 -> 30 is pure removal -- it discards 293 false positives and 24 true positives together, and cannot add anything back. Precision rises because the removal is 92.4% false positives by volume, not because any fraud becomes newly visible.
+
+## 14. Victim contamination of ordinary-legitimate false positives at threshold 26
+Section 1 measures this split at the configured operating point (threshold 20); section 12 measures the ordinary-legitimate SHARE of false positives at threshold 26. Combining the two would assume the victim share holds steady across that move, which is an assumption and not a measurement. This measures it directly at 26, using the same alert rule as sections 4 and 12 (risk_score >= t OR the geo-velocity hard override).
+The three populations below are properties of the data, not of the threshold -- they are identical to section 1's. Only the flagged counts and rates move.
+  ordinary rows, household never defrauded: n=109,936  flagged=    0  rate= 0.000%
+  ordinary rows, victim hh BEFORE fraud : n= 11,530  flagged=    0  rate= 0.000%
+  ordinary rows, victim hh AFTER fraud  : n= 13,042  flagged=  427  rate= 3.274%
+Share of ordinary-legitimate false positives falling after their own household's fraud, at threshold 26: 100.00%
+Same quantity at the configured threshold 20 (section 1's figure, recomputed here so both sit in one place): 99.14%
+The share does not merely hold across the move -- it rises to 100.00%. At threshold 26 every single ordinary-legitimate false positive falls after its own household's fraud; the 16 false positives on never-defrauded households present at threshold 20 are all gone. The claim is therefore stronger at the higher threshold than the combination would have assumed, not weaker -- but it should be quoted as measured here rather than carried over from section 1.
+Read with section 12: raising the threshold does not dilute the victim-contamination mechanism, it concentrates it. The false positives that survive a higher threshold are more purely victims' own post-fraud transactions, not less.
