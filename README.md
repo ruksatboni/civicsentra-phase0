@@ -330,6 +330,7 @@ python src/evaluate.py               # -> outputs/evaluate_metrics.md
 python src/benchmark_latency.py      # -> outputs/benchmark_runs/<date>.md + benchmark_latency.md
 python src/neighbour_distribution.py  # -> outputs/neighbour_distribution.md
 python src/geo_floor_justification.py # -> outputs/GEO_FLOOR_JUSTIFICATION.md
+python src/n1_crossing_drawdown.py    # -> outputs/n1_crossing_drawdown.md
 python src/test_leakage.py            # -> outputs/LEAKAGE_TEST.md (must pass)
 python src/verify_independent.py      # -> outputs/INDEPENDENT_VERIFICATION.md
 ```
@@ -338,7 +339,10 @@ python src/verify_independent.py      # -> outputs/INDEPENDENT_VERIFICATION.md
 measurements behind a config threshold, parse the claimed figures back out of
 `config.yaml`'s own comments, and **exit non-zero if any has drifted** — so a
 regenerated dataset cannot leave a stale justification sitting behind a
-parameter.
+parameter. `n1_crossing_drawdown.py` does the same for a published figure
+rather than a threshold: the mean, median and range of monthly benefit drawn
+by the 48 crossing-issuance N1 transactions, checked against the claim
+recorded in `data/ebt_data_dictionary.md`.
 
 `src/report.py` — a single command regenerating everything with charts — is
 specified in `SPEC.md` §4.7 but **not built**. The sequence above is the

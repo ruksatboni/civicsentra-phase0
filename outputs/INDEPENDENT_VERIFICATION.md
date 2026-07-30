@@ -1,6 +1,6 @@
 # Independent verification
 
-Generated 2026-07-29 13:29:39 by `src/verify_independent.py`, which recomputes every headline metric from `data/ebt_scored.csv` (137,080 rows) without importing anything from `evaluate.py`, `features.py` or `scorer.py`, and without using pandas or numpy. The 'reported' column is parsed from `outputs/evaluate_metrics.md` — what evaluate.py actually wrote, not what it was expected to write.
+Generated 2026-07-30 07:55:22 by `src/verify_independent.py`, which recomputes every headline metric from `data/ebt_scored.csv` (137,080 rows) without importing anything from `evaluate.py`, `features.py` or `scorer.py`, and without using pandas or numpy. The 'reported' column is parsed from `outputs/evaluate_metrics.md` — what evaluate.py actually wrote, not what it was expected to write.
 
 **Result: 34 of 34 metrics MATCH, 0 MISMATCH. 8 of 8 population identities hold.**
 

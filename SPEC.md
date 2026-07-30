@@ -521,6 +521,7 @@ civicsentra-phase0/
 │   ├── verify_independent.py
 │   ├── neighbour_distribution.py
 │   ├── geo_floor_justification.py
+│   ├── n1_crossing_drawdown.py
 │   ├── federated.py          (v1.1 — not built)
 │   └── report.py             (v1.1 — not built)
 ├── scripts/
@@ -534,6 +535,7 @@ civicsentra-phase0/
 │   ├── benchmark_runs/       (write-once dated archive, one file per run)
 │   ├── neighbour_distribution.md
 │   ├── GEO_FLOOR_JUSTIFICATION.md
+│   ├── n1_crossing_drawdown.md
 │   ├── LEAKAGE_TEST.md
 │   ├── INDEPENDENT_VERIFICATION.md
 │   └── TRACEABILITY.md
@@ -571,9 +573,12 @@ Status as of 2026-07-27.
       credibility claim rests on is now recomputed by a committed script:
       `neighbour_distribution.py` (the same-terminal distribution behind
       `min_neighbours_flagged`), `geo_floor_justification.py` (all 11 figures
-      behind `min_elapsed_minutes_to_score`, both datasets), and
-      `test_leakage.py`, which now writes `outputs/LEAKAGE_TEST.md` on every
-      run rather than only to the console.
+      behind `min_elapsed_minutes_to_score`, both datasets),
+      `n1_crossing_drawdown.py` (the mean/median/range drawdown of the 48
+      crossing-issuance N1 rows, the last figures in the results section
+      that no script computed), and `test_leakage.py`, which now writes
+      `outputs/LEAKAGE_TEST.md` on every run rather than only to the
+      console.
 - [x] **Limitations stated prominently in README and report** — met in
       README; the "report" half is subsumed by the EXPLAIN files and this
       document until `report.py` exists.

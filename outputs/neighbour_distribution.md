@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- same-terminal temporal-neighbour distribution
-Generated 2026-07-28 01:39:05 UTC by `src/neighbour_distribution.py` from `data/ebt_synthetic.csv` (137,080 rows).
+Generated 2026-07-30 01:55:20 UTC by `src/neighbour_distribution.py` from `data/ebt_synthetic.csv` (137,080 rows).
 
 This is the measurement that justifies `min_neighbours_flagged` in config.yaml. It was previously a hand-measured figure in a comment with no script behind it (outputs/TRACEABILITY.md §7). It is now recomputed here, by two independent implementations, and the config comment's own numbers are parsed back out and checked against them.
 

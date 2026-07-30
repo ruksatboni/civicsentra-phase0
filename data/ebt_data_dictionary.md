@@ -43,6 +43,20 @@ why. Every value below is read from the file, not from the generator code.
 | `P4` | 77 | Issuance-day fast drain, `is_fraud=True` |
 | `P7` | 77 | Off-hours drain, `is_fraud=True` |
 
+## N1 store-and-forward crossing-issuance subset — measured drawdown
+
+The file contains 339 N1 transactions, of which 48 are store-and-forward cases
+crossing an issuance boundary (`n1_crossing_issuance = True`), drawing a mean
+68.4% of monthly benefit (median 71.1%, range 42.6–88.3%).
+
+Recorded here because it is cited in the paper's N1 section and the paper is not
+distributed with this repository. `src/n1_crossing_drawdown.py` recomputes all
+three figures from this CSV into
+[`outputs/n1_crossing_drawdown.md`](../outputs/n1_crossing_drawdown.md), parses
+them back out of this paragraph, and exits non-zero if they have drifted — so
+this is a checked claim, not a hand-measured one like the observed values in the
+table above.
+
 `P1` (skimmer harvest) does not appear as a `fraud_pattern` value by design —
 it is represented instead through `terminal_compromised_at_time=True` on
 ordinary legitimate rows. See EXPLAIN doc for why.

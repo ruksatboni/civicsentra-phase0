@@ -136,6 +136,41 @@ justified only by the first could be suppressing real detections.
 | Of those, involving a fraud row | 0 / 0 | `analyse()` |
 | Config comment vs. recomputed | 11 of 11 MATCH | `parse_claimed()` |
 
+## 2c-bis. `n1_crossing_drawdown.py` → `outputs/n1_crossing_drawdown.md`
+
+Recomputes the drawdown figures the paper's N1 section cites for the 48
+store-and-forward transactions crossing an issuance boundary. Unlike §2b and §2c
+this closes a gap in a *published claim* rather than behind a config parameter —
+the figures justify no threshold, but the whole legitimate-but-anomalous
+argument rests on this subgroup being described correctly.
+
+| Figure | Value | Computed by |
+|---|---|---|
+| Crossing-issuance N1 rows | 48 of 339 N1, 48 households | `drawdown_pandas()` |
+| Mean drawdown (% of monthly benefit) | 68.4280% | `drawdown_pandas()` |
+| Median drawdown | 71.1031% | `drawdown_pandas()` |
+| Range | 42.5824%–88.2680% | `drawdown_pandas()` |
+| Cross-check, stdlib vs. pandas | 5 of 5 statistics agree, worst gap 1.4e-14 | `drawdown_stdlib()` |
+| Subgroup-definition assertions | 5 of 5 OK | `main()` |
+| Generator containment: every draw inside `uniform(40%, 90%)` | OK | `generator_bounds()` |
+| Claimed figures vs. recomputed | 12 of 12 MATCH | `parse_claim()` |
+
+Denominator is `monthly_benefit_amount`, not remaining balance — 7 CFR 274.12(m)
+permits a crossing-issuance store-and-forward transaction to draw against the
+whole newly issued balance, so the benefit amount is what is available. Two
+implementations (pandas, and stdlib `csv` with the even-n median written out by
+hand), five assertions that the 48 rows are the subgroup the claim describes,
+and the claimed figures parsed back out of the files that record them. Exits
+non-zero on any disagreement.
+
+The claim is recorded in `data/ebt_data_dictionary.md`, which carries the
+paper's sentence verbatim so the check is self-contained in a clean checkout.
+The paper's draft section is not distributed here (`.gitignore`); when a copy is
+reachable the script parses and checks it too, so the sentence actually being
+published is the one under test. Its absence is reported, not counted as a
+failure — which does mean that in a clean checkout the machine-checked claim is
+the committed restatement, not the paper text itself.
+
 ## 2d. `test_leakage.py` → `outputs/LEAKAGE_TEST.md`
 
 | Figure | Value | Computed by |
@@ -255,6 +290,7 @@ regenerated dataset would not re-derive or re-validate them.
 | Same-terminal 15-min neighbour distribution: 95.33% / 4.48% / 0.19% | `src/neighbour_distribution.py` now recomputes it into `outputs/neighbour_distribution.md`, by two independent implementations that agree on all 137,080 rows, and parses the claimed figures back out of `config.yaml`'s comment to check them. All four match the hand-measured 2026-07-25 values exactly — the threshold's justification stands and is now reproducible. See §2b. |
 | Run 1 latency being the sole basis of a reproducibility claim | Run 3 executed 2026-07-28 with a write-once archive; the claim now rests on two surviving machine records. Reclassified above rather than deleted. |
 | Geo-velocity 5-minute floor: 6 of 130,631 pairs, and the 1/3 fraud rows that would trip impossible-speed | `src/geo_floor_justification.py` recomputes **all 11** figures in the config comment over both datasets — both halves of the argument together, since a floor justified only by "it removes artifacts" could be silently destroying detections. All 11 match; 0 of the 4 tripping fraud rows sit under the floor. See §2c. |
+| Crossing-issuance N1 drawdown: mean 68.4%, median 71.1%, range 42.6–88.3% of monthly benefit | `src/n1_crossing_drawdown.py` recomputes all three from `data/ebt_synthetic.csv` into `outputs/n1_crossing_drawdown.md`, by two implementations that agree exactly, and parses the claimed values back out of `data/ebt_data_dictionary.md` (and the paper draft when reachable). All 12 checked values match. These were cited in the paper's N1 section, not in any file in this repository, so they were never listed in the table above — the gap was real but out of this document's declared scope, which covered published *repository* files only. See §2c-bis. |
 | Leakage-test result | `test_leakage.py` now writes `outputs/LEAKAGE_TEST.md` on every run, pass or fail — all 34 sampled rows, what each was chosen to exercise, per-row result, and the 2026-07-25 bug it caught. Current run 34/34 PASS. See §2d. |
 
 **No load-bearing figure is now untraced.** The two entries remaining above
@@ -270,7 +306,8 @@ values; nothing depends on either.
   `outputs/INDEPENDENT_VERIFICATION.md`, and `data/ebt_scored.csv`.
 - **Independently machine-verified:** 34 headline metrics + 8 population
   identities (§5), plus the neighbour distribution's two-implementation
-  agreement across all 137,080 rows (§2b).
+  agreement across all 137,080 rows (§2b) and the crossing-issuance N1
+  drawdown's two-implementation agreement and 12 claim checks (§2c-bis).
 - **Computed but not persisted:** 5 figure groups (§6) — one partly
   load-bearing but machine-checked downstream, four not load-bearing.
 - **Not computed by any committed script:** 2 figure groups (§7) — neither
