@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: "CivicSentra Phase 0 Reference Implementation"
+message: "If you use this software or its results, please cite it as below."
+type: software
+authors:
+  - family-names: Boni
+    given-names: Ruksat Hossain
+    city: Dhaka
+    country: BD
+repository-code: "https://github.com/ruksatboni/civicsentra-phase0"
+abstract: >-
+  Reference implementation and evaluation harness for the CivicSentra
+  cross-rail transaction risk-scoring model, evaluated against synthetic
+  EBT transaction data.
+license: MIT
+version: 1.0.0
+date-released: 2026-08-07
