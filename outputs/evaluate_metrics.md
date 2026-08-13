@@ -1,5 +1,5 @@
 # CivicSentra Phase 0 -- evaluate.py output
-Generated 2026-07-29 07:27:52 UTC from data/ebt_scored.csv (137,080 rows).
+Generated 2026-08-13 14:43:56 UTC from data/ebt_scored.csv (137,080 rows).
 Every number below is computed by this script's own execution, not assumed or carried over from a previous run.
 
 ## 1. Precision / recall at the current operating point (scorer.py's configured thresholds)
@@ -91,7 +91,7 @@ Savings-to-cost ratio = fraud value caught / total review cost, across the full 
    mid ($7.50/alert): total review cost=$17,475.00   ratio=3.86:1
   high ($9.20/alert): total review cost=$21,436.00   ratio=3.15:1
 
-Paper claims 20-80x (§4.4) / 4-5x (§6), never 99x. Measured ratio here ranges 3.15:1 to 4.52:1 across the review-cost range -- read together with the report's C4 discussion, not in isolation.
+Paper gives three inconsistent ratios: 99:1 rhetorically ("spend 1, save 99" -- exec summary, abstract, §4.4 heading, §8); 20-80x arithmetically ($60-80M saved / $1-3M cost, stated in §4.4 and repeated in §6); and >4:1 in §6's state-level illustration ($8-9M / <$2M). §6 therefore contains two of the three. Measured ratio here ranges 3.15:1 to 4.52:1 across the review-cost range, consistent only with the lowest. Computed at this dataset's elevated prevalence -- see outputs/robustness_realistic_prevalence.md for the field-realistic figure, which is lower and is the one any deployment claim takes. Read together with the report's C4 discussion, not in isolation.
 
 ## 7. N1 false-flag rate (technical failure, legitimate -- is_fraud=False)
   All N1 rows flagged (step_up or block): 55/339 = 16.22%

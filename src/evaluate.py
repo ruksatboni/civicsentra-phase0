@@ -1140,9 +1140,16 @@ def build_report(out, cfg):
                       f"total review cost=${row['total_review_cost_usd']:,.2f}   "
                       f"ratio={row['savings_to_cost_ratio']:.2f}:1")
     ratios = [r["savings_to_cost_ratio"] for r in cm["by_cost_level"]]
-    lines.append(f"\nPaper claims 20-80x (§4.4) / 4-5x (§6), never 99x. Measured ratio here "
-                  f"ranges {min(ratios):.2f}:1 to {max(ratios):.2f}:1 across the review-cost "
-                  "range -- read together with the report's C4 discussion, not in isolation.\n")
+    lines.append(f"\nPaper gives three inconsistent ratios: 99:1 rhetorically (\"spend 1, save 99\" "
+                  "-- exec summary, abstract, §4.4 heading, §8); 20-80x arithmetically ($60-80M "
+                  "saved / $1-3M cost, stated in §4.4 and repeated in §6); and >4:1 in §6's "
+                  "state-level illustration ($8-9M / <$2M). §6 therefore contains two of the "
+                  f"three. Measured ratio here ranges {min(ratios):.2f}:1 to {max(ratios):.2f}:1 "
+                  "across the review-cost range, consistent only with the lowest. Computed at "
+                  "this dataset's elevated prevalence -- see outputs/robustness_realistic_"
+                  "prevalence.md for the field-realistic figure, which is lower and is the one "
+                  "any deployment claim takes. Read together with the report's C4 discussion, "
+                  "not in isolation.\n")
 
     # -- 7/8: N1 / N2 false-flag rates ---------------------------------------
     lines.append("## 7. N1 false-flag rate (technical failure, legitimate -- is_fraud=False)")
