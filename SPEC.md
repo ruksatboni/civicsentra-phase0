@@ -10,15 +10,20 @@ Banking, and Public Welfare Systems.*
 ## 1. Purpose
 
 The white paper makes four claims that had no evidence behind them. This build
-exists to test all four and report what actually happens. Three were tested;
-one was not.
+tests three of the four directly and records what it found. The fourth,
+federated learning, needs infrastructure that was not built, so no evidence is
+offered for it in either direction.
+
+A further capability the paper relies on — graph-based ring detection (§4.2) —
+was also not built. It is recorded in the scope note below rather than in the
+claims table, because the paper does not enumerate it as one of the four.
 
 | # | Claim | Paper § | How we test it | Status |
 |---|-------|---------|----------------|--------|
 | C1 | Scoring completes in under 30 ms | §4.2 | Per-transaction latency benchmark, p50/p95/p99, streaming not batched | **Tested — not supported.** p50 637.16 ms, p95 1037.45 ms, p99 1083.36 ms; 0% of sampled transactions under 30 ms. Four runs over four days agree to 0.69% at the median |
-| C2 | Fraud reduced 60–80% | §4.4 | Detection rate at operationally realistic false-positive rates | **Tested — partially supported.** 72.94% recall at the configured operating point, inside the claimed band, but at 17.12% precision; see §4.4 on the review-volume cost |
+| C2 | Fraud reduced 60–80% | §4.4 | Detection rate at operationally realistic false-positive rates | **Tested — not supported as stated.** Recall measured at 72.94% (17.12% precision) at the configured operating point, and 73.17% at realistic prevalence. Neither figure is a fraud-reduction measurement. C2 claims a reduction in losses; recall is the fraction of labelled fraud flagged on a fixed historical dataset. Shadow mode blocks nothing, so no reduction occurred and none could be measured — the quantity was never observable here. That both recall figures fall inside the claimed 60–80% band is a coincidence — recall and loss reduction are different quantities that happen to occupy the same numeric range here — and the agreement across two datasets should not be read as corroboration |
 | C3 | Federated learning beats siloed models without sharing raw data | §4.2, §7 | Three-partition federated averaging vs. local-only baselines | **NOT TESTED.** `federated.py` was cut from this sprint and is not built. No evidence is offered for C3 either way |
-| C4 | Savings vastly exceed cost ("spend 1, save 99") | §4.4, §6 | Dollar-weighted cost model producing the *actual* ratio | **Tested — partially supported.** See below |
+| C4 | Savings vastly exceed cost ("spend 1, save 99") | §4.4, §6 | Dollar-weighted cost model producing the *actual* ratio | **Tested — projection replaced by measurement.** The paper's figure was a projection made without a testable implementation; this build supplies the first measured value. Measured: 1.99:1 to 2.86:1 at realistic prevalence, and 3.15:1 to 4.52:1 on the primary dataset, each across the full $6.40–$9.20 review-cost range. The realistic figure is the one any deployment claim takes; elevated prevalence flatters this metric specifically. Above break-even throughout both ranges — the model pays for itself, at a smaller multiple than projected |
 
 **C1 needs stating plainly:** the measured latency is roughly 21× the claimed
 bound at the median. The dominant cause is architectural, not language choice:
@@ -27,13 +32,26 @@ than maintaining incremental state, and latency correlates with history size at
 r=0.997–0.999 across four runs. A compiled reimplementation would not by
 itself close this gap.
 
-**C4 needs stating plainly:** Measured: 3.15:1 to 4.52:1 across the
-review-cost range. The paper's §4.4 figure of 20–80x is not supported; the §6
-figure of 4–5x is. The "spend 1, save 99" formulation appears nowhere in the
-paper's own arithmetic and is withdrawn. The measured ratio remains above
-break-even throughout the cost range. The dominant constraint is review
-volume, driven by SPEND_BASELINE_HIGH_DRAW on ordinary legitimate
-transactions — see the README roadmap for intended remediation.
+**C4 needs stating plainly:** the paper carries three inconsistent ratios —
+"spend 1, save 99" rhetorically (executive summary, abstract, §4.4's title,
+conclusion), 20–80× arithmetically (§4.4, repeated in §6), and above 4:1 in
+§6's state-level illustration. Measurement supports none of them. The measured
+ratio is 1.99:1 to 2.86:1 at realistic prevalence; the 99:1 and 20–80×
+formulations are withdrawn.
+
+A bound is worth stating, because it explains why the original figure was
+unreachable rather than merely unmet. A detector with perfect precision and
+perfect recall would alert exactly once per fraud transaction, which on this
+dataset yields 13.69:1 to 19.68:1 across the review-cost range. The ceiling is
+set by the ratio of mean fraud value to review cost per alert — a property of
+the economics, not of any detector. No detection method reaches 99:1 under this
+cost model. The corollary is where the real headroom lies: reducing cost per
+alert, through the false-positive remediation in the README roadmap, moves the
+ceiling in a way that better detection cannot.
+
+The dominant constraint on the measured number is review volume, driven by
+SPEND_BASELINE_HIGH_DRAW on ordinary legitimate transactions — see the README
+roadmap for intended remediation.
 
 ## 2. Scope
 
@@ -66,7 +84,7 @@ fairness, on synthetic and public benchmark data.
 **Out of scope.** Production deployment. Real payment network integration. Real
 cardholder or beneficiary data. Any claim that this constitutes a pilot.
 
-**This distinction must appear in the README, the report, and §9.5 of the paper.**
+**This distinction must appear in the README, the report, and §8.5 of the paper.**
 Overstating what this is would be worse than not building it.
 
 ---
@@ -541,11 +559,12 @@ civicsentra-phase0/
 │   └── TRACEABILITY.md
 ```
 
-The paper's own draft section is **not** in this repository. It reports these
-results, but the paper it belongs to has not yet been revised to match them —
-publishing the draft alongside a repository that measures p50 ≈ 637 ms, while
-the paper still claims sub-30 ms, would put two contradictory numbers under the
-same name. It is published with the revised paper, not before.
+The paper's own draft section is **not** in this repository. The paper reports
+these results and is published separately; keeping one canonical copy avoids the
+two drifting apart. An earlier version of this note recorded that the draft was
+withheld because the paper still claimed sub-30 ms while this repository
+measured p50 ≈ 637 ms. That conflict is resolved: the paper now reports the
+measured figure and states sub-30 ms as a design target.
 
 Generated datasets (`data/ebt_synthetic.csv`, `data/ebt_scored.csv`) are
 reproduced by running the pipeline; see README for whether they are
@@ -553,7 +572,7 @@ distributed with the repository or obtained from the archived release.
 
 ## 6. Definition of done
 
-Status as of 2026-07-27.
+Status as of 2026-08-14.
 
 - [ ] **`python src/report.py` regenerates every result from scratch** —
       *not met.* `report.py` is deferred to v1.1. Results regenerate today by
@@ -583,4 +602,8 @@ Status as of 2026-07-27.
       README; the "report" half is subsumed by the EXPLAIN files and this
       document until `report.py` exists.
 - [x] **AI-assisted implementation disclosed in README** — met.
-- [ ] **Published to GitHub with a Zenodo DOI** — not yet done.
+- [x] **Published to GitHub with a Zenodo DOI** — met.
+      `https://github.com/ruksatboni/civicsentra-phase0`, archived at
+      `https://doi.org/10.5281/zenodo.21840500` (version DOI for v1.0.0).
+      The accompanying white paper is published at
+      `https://doi.org/10.2139/ssrn.7247741`.

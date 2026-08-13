@@ -367,8 +367,11 @@ committing:
 sh scripts/pre-commit; echo $?
 ```
 
-Before publishing, change the allowlist in `scripts/pre-commit` to a GitHub
-noreply address and re-stamp the existing history to match.
+The repository is now published. The author-email lock remains in place and the
+existing history was left as committed: `placeholder@example.invalid` appears as
+the author on every commit, deliberately, so no personal email address is
+embedded in the public record. Authorship is established by `CITATION.cff`, this
+README, and the archived DOI below rather than by commit metadata.
 
 **On the leakage test.** Every feature must be computable from information
 available at the moment a transaction arrives. `test_leakage.py` truncates the
@@ -524,7 +527,9 @@ implementation and the paper it tests.
   title   = {CivicSentra Phase 0: A Synthetic EBT Fraud Detection Benchmark
              and Shadow-Mode Scoring Engine},
   year    = {2026},
-  note    = {Repository URL and DOI to be added on release}
+  version = {1.0.0},
+  doi     = {10.5281/zenodo.21840500},
+  url     = {https://github.com/ruksatboni/civicsentra-phase0}
 }
 
 @misc{civicsentra_paper,
@@ -532,7 +537,9 @@ implementation and the paper it tests.
   title  = {CivicSentra: A Sustainable AI-Driven Model for Securing
             Transactions Across E-Commerce, Banking, and Public Welfare
             Systems},
-  year   = {2026}
+  year   = {2026},
+  doi    = {10.2139/ssrn.7247741},
+  note   = {SSRN preprint, Abstract ID 7247741}
 }
 ```
 
